@@ -352,12 +352,18 @@ class PmdSprite:
         self.w, self.h = cw * scale, ch * scale
         self.pad_bottom = (y1 - ground) * scale
         self.head_top = (head - y0) * scale
+        # 누운 자세 등이 걷기 때 발끝보다 아래로 내려가면 그만큼 올려 그려서 작업표시줄을 넘지 않게
+        self.lift = {}
+        for s, (l, r, _) in boxed.items():
+            low = max(opaque_rows(i, range(bh - 1, -1, -1)) or 0 for i in l + r)
+            self.lift[s] = max(0, low - ground) * scale
 
 
 class GifSprite:
     """GIF 프레임을 합성해 좌/우 방향 확대 이미지 리스트로 보관. 모든 상태가 같은 애니메이션."""
     pause_sleep = True
     walk_speed = None             # 걷기 모션이 없으니 속도 맞추기도 없음
+    lift = {}                     # 모든 상태가 같은 프레임이라 보정할 필요 없음
 
     def __init__(self, path):
         if path.suffix == ".png":
@@ -773,14 +779,15 @@ class Pet:
                     self.frame = 0
         frames = anim.right if self.facing > 0 else anim.left
         self.cv.itemconfig(self.img_id, image=frames[self.frame])
+        off = self.sp.lift.get(name, 0)
         if self.sp.static:
             self.bob_t += dt
             if self.state in ("walk", "approach", "leave"):   # 걸을 땐 통통 튀기
-                off = abs(math.sin(self.bob_t / 110)) * 7
+                off += abs(math.sin(self.bob_t / 110)) * 7
             elif self.state in ("idle", "drag", "battle"):   # 가만히 있을 땐 숨쉬기
-                off = 2 if (self.bob_t // 550) % 2 else 0
-            else:
-                off = 0
+                off += 2 if (self.bob_t // 550) % 2 else 0
+        if off != getattr(self, "_img_off", 0):
+            self._img_off = off
             self.cv.coords(self.img_id, self.cw // 2, self.ch - int(off))
 
     # -------------------------------------------------- mouse
