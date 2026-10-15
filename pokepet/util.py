@@ -70,6 +70,9 @@ def gif_frame_info(data):
 
 
 def poke_name(num, names):
+    from . import dex                 # 도감 표에 있으면 그 이름 (#1~493)
+    if dex.name(num):
+        return dex.name(num)
     if num in KO_NAMES:
         return KO_NAMES[num]
     return names.get(str(num), f"#{num}")
@@ -88,6 +91,13 @@ def josa(word, pair):
     ch = word[-1]
     has_final = "가" <= ch <= "힣" and (ord(ch) - 0xAC00) % 28 != 0
     return word + (pair[0] if has_final else pair[1])
+
+
+def josa_ro(word):
+    """'로/으로': 받침이 없거나 ㄹ 받침이면 '로'. josa_ro('블래키') -> '블래키로', josa_ro('롱스톤') -> '롱스톤으로'"""
+    ch = word[-1]
+    final = (ord(ch) - 0xAC00) % 28 if "가" <= ch <= "힣" else 0
+    return word + ("로" if final in (0, 8) else "으로")
 
 
 def calc_stat(base, level, is_hp=False):

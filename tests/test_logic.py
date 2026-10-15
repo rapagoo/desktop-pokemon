@@ -4,7 +4,7 @@ import unittest
 
 from pokepet.battle import calc_damage, type_effect
 from pokepet.sprites import parse_anim_data
-from pokepet.util import calc_stat, exp_for, gif_frame_info, josa
+from pokepet.util import calc_stat, exp_for, gif_frame_info, josa, josa_ro
 
 
 class FakeMon:
@@ -32,6 +32,11 @@ class TestJosa(unittest.TestCase):
 
     def test_non_hangul_uses_second_form(self):
         self.assertEqual(josa("#25", "이가"), "#25가")
+
+    def test_ro_euro(self):
+        self.assertEqual(josa_ro("블래키"), "블래키로")      # 받침 없음
+        self.assertEqual(josa_ro("마릴"), "마릴로")          # ㄹ 받침
+        self.assertEqual(josa_ro("롱스톤"), "롱스톤으로")    # 그 외 받침
 
 
 class TestStats(unittest.TestCase):

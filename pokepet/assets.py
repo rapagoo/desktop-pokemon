@@ -13,25 +13,30 @@ from .config import (
     SPRITE_DIR,
     SPRITE_SOURCES,
 )
+from . import dex
 from .util import http_get, load_json
 from .sprites import parse_anim_data
 
 
 def download_dex(num):
-    """타입·종족값·기초 경험치 (PokeAPI)를 sprites/dex-<번호>.json 에 캐시."""
+    """타입·종족값·기초 경험치. 도감 표에 있으면 그걸 쓰고, 없으면 PokeAPI에서 받아 캐시."""
+    known = dex.entry(num)
+    if known:
+        return {k: known[k] for k in ("types", "stats", "base_exp")}
     path = SPRITE_DIR / f"dex-{num}.json"
-    dex = load_json(path, None)
-    if dex:
-        return dex
+    cached = load_json(path, None)
+    if cached:
+        return cached
     try:
         d = json.loads(http_get(POKEMON_URL.format(num=num)))
-        dex = {"types": [t["type"]["name"] for t in d["types"]],
-               "stats": {s["stat"]["name"]: s["base_stat"] for s in d["stats"]},
-               "base_exp": d.get("base_experience") or 60}
-        path.write_text(json.dumps(dex), encoding="utf-8")
-        return dex
+        info = {"types": [t["type"]["name"] for t in d["types"]],
+                "stats": {s["stat"]["name"]: s["base_stat"] for s in d["stats"]},
+                "base_exp": d.get("base_experience") or 60}
+        path.write_text(json.dumps(info), encoding="utf-8")
+        return info
     except Exception:
         return DEFAULT_DEX
+
 
 def download_portraits(num):
     for emo in EMOTIONS:

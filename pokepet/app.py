@@ -30,13 +30,14 @@ from .config import (
 from .storage import SAVE_FOLDER, SaveStore
 from .util import chant, exp_for, http_get, josa, load_json, poke_name, work_area
 from .sprites import load_sprite
-from . import assets, screen
+from . import assets, dex, screen
 from .battle import BattleMixin
+from .evolution import EvolutionMixin
 from .dialog import Dialog
 from .pet import Pet
 
 
-class App(BattleMixin):
+class App(BattleMixin, EvolutionMixin):
     def __init__(self, debug=False):
         self.debug = debug
         if debug:
@@ -63,6 +64,7 @@ class App(BattleMixin):
         self.wild = None              # 지금 화면에 있는 야생 포켓몬
         self.spawning = False         # 야생 포켓몬을 받는 중
         self.battle = None            # {"ally", "turn", "cool"}
+        self.wild_target = None       # 야생 포켓몬이 상대하러 가는 내 포켓몬 (레벨을 맞춤)
         self.spawn_t = random.randint(*FIRST_SPAWN_MS)
 
         # 저장소 (클라우드 폴더를 정했으면 학원 PC ↔ 집 PC 연동)
@@ -91,8 +93,10 @@ class App(BattleMixin):
     # -------------------------------------------------- party / save
     def load_party(self, party):
         for p in party:
-            self.request(p["num"], p.get("shiny", False), save=False,
-                         stats={k: p[k] for k in ("level", "exp", "hp") if k in p})
+            # 다른 PC에서 저장된 포켓몬이 이 PC에서 깨어나면 통신 교환으로 친다
+            traded = p.get("machine") not in (None, self.store.machine)
+            self.request(p["num"], p.get("shiny", False), save=False, traded=traded,
+                         stats={k: p[k] for k in ("level", "exp", "hp", "friendship") if k in p})
 
     def replace_party(self, party):
         """다른 PC에서 저장한 파티로 바꾼다 (지금 화면의 내 포켓몬은 정리)."""
@@ -105,7 +109,8 @@ class App(BattleMixin):
 
     def save(self):
         party = [{"num": p.num, "shiny": p.shiny, "level": p.level, "exp": p.exp,
-                  "hp": round(p.hp)} for p in self.party()]
+                  "hp": round(p.hp), "friendship": p.friendship, "machine": self.store.machine}
+                 for p in self.party()]
         try:
             where = self.store.save(party)
             if where != self.store.save_file:
@@ -156,13 +161,19 @@ class App(BattleMixin):
         self.save()
 
     # -------------------------------------------------- loading
-    def request(self, num, shiny=None, save=True, wild=False, stats=None):
+    def request(self, num, shiny=None, save=True, wild=False, stats=None, traded=False, replace=None):
+        """포켓몬을 백그라운드에서 받아 화면에 올린다.
+
+        traded : 다른 PC에서 옮겨 와서 깨어남 (교환 진화 확인)
+        replace: 진화 — 이 포켓몬 자리에 새 모습으로 바꿔 넣음
+        """
         if shiny is None:
             shiny = random.random() < SHINY_CHANCE
-        threading.Thread(target=self._fetch, args=(num, shiny, save, wild, stats or {}),
+        extra = {"traded": traded, "replace": replace}
+        threading.Thread(target=self._fetch, args=(num, shiny, save, wild, stats or {}, extra),
                          daemon=True).start()
 
-    def _fetch(self, num, shiny, save, wild, stats):
+    def _fetch(self, num, shiny, save, wild, stats, extra):
         try:
             # PMD(이로치) → PMD(일반) → 5세대 도트 순서. PMD 이로치가 없으면 일반으로.
             path = assets.download_pmd(num, shiny)
@@ -171,7 +182,7 @@ class App(BattleMixin):
                 shiny = False if path else shiny
             if path is None:
                 path = assets.download_sprite(num, shiny)
-            if num not in KO_NAMES and str(num) not in self.names:
+            if not dex.name(num) and num not in KO_NAMES and str(num) not in self.names:
                 try:
                     sp = json.loads(http_get(SPECIES_URL.format(num=num)))
                     ko = next((n["name"] for n in sp["names"] if n["language"]["name"] == "ko"), None)
@@ -179,13 +190,13 @@ class App(BattleMixin):
                         self.names[str(num)] = ko
                 except Exception:
                     pass
-            dex = assets.download_dex(num)
+            info = assets.download_dex(num)
             assets.download_portraits(num)
             self.loaded.put({"num": num, "shiny": shiny, "path": path, "save": save,
-                             "wild": wild, "stats": stats, "dex": dex})
+                             "wild": wild, "stats": stats, "dex": info, **extra})
         except Exception as ex:
             print(f"#{num} 불러오기 실패: {ex}", file=sys.stderr)
-            self.loaded.put({"failed": True, "wild": wild})
+            self.loaded.put({"failed": True, "wild": wild, **extra})
 
     def portrait(self, num, emotion):
         for emo in (emotion, "Normal"):
@@ -206,6 +217,8 @@ class App(BattleMixin):
             if item["wild"]:
                 self.spawning = False
                 self.spawn_t = 10_000
+            if item.get("replace"):                 # 진화할 모습을 못 받음 → 다음 기회에
+                self.cancel_evolution(item["replace"])
             return
         path = item["path"]
         key = path.name
@@ -221,8 +234,13 @@ class App(BattleMixin):
                 if item["wild"]:
                     self.spawning = False
                     self.spawn_t = 10_000
+                if item.get("replace"):
+                    self.cancel_evolution(item["replace"])
                 return
         num = item["num"]
+        if item.get("replace"):
+            self.finish_evolution(item["replace"], item)
+            return
         pet = Pet(self, num, item["shiny"], self.sprites[key], poke_name(num, self.names),
                   item["dex"], wild=item["wild"], **item["stats"])
         if self.hidden:
@@ -234,7 +252,8 @@ class App(BattleMixin):
                              f"야생 {josa(pet.name, '이가')} 나타났다! (Lv.{pet.level})")
         if item["save"]:
             self.save()
-
+        if item.get("traded"):                      # 착지한 뒤 교환 진화 확인
+            self.root.after(2500, lambda: self.try_evolve(pet, traded=True))
 
     # -------------------------------------------------- main loop
     def loop(self):

@@ -23,7 +23,7 @@ class Pet:
     GROUNDED = ("walk", "idle", "sleep", "battle", "fainted", "dazed", "approach", "leave")
 
     def __init__(self, app, num, shiny, sprite, name, dex, wild=False,
-                 level=START_LEVEL, exp=None, hp=None):
+                 level=START_LEVEL, exp=None, hp=None, friendship=0):
         self.app, self.num, self.shiny, self.sp, self.name = app, num, shiny, sprite, name
         self.dex, self.wild, self.level = dex, wild, level
         self.exp = exp if exp is not None else exp_for(level)
@@ -56,7 +56,7 @@ class Pet:
         self.anim_name, self.frame, self.frame_t, self.bob_t = "idle", 0, 0, 0
         self.action, self.action_done = None, None
         self.drag = None
-        self.pets = 0
+        self.friendship = friendship  # 쓰다듬은 횟수 (친밀도 진화에 사용)
         self.cool = 0                 # 다른 포켓몬과 인사 쿨타임
         if wild:                      # 화면 가장자리 밖에서 걸어 들어옴
             self.facing = random.choice((-1, 1))
@@ -380,16 +380,20 @@ class Pet:
             self.say("…!? 깼다!", 1500)
             self.set_state("idle", 2000)
             return
+        if self.state == "evolving":
+            self.say("…!", 800)
+            return
         if self.state in ("battle", "fainted"):      # 응원만
             self.say("♥ 힘내!" if self.state == "battle" else "…", 1000)
             return
-        self.pets += 1
-        if self.pets % 5 == 0:
+        self.friendship += 1
+        if self.friendship % 5 == 0:
             self.say("♥♥♥ 최고야!", 2000)
         else:
             self.say(random.choice(HAPPY + [chant(self.name)]), 1300)
         if self.state != "fall":
             self.set_state("jump")
+        self.app.on_pat(self)
 
     def on_menu(self, e):
         self.app.show_menu(self, e.x_root, e.y_root)

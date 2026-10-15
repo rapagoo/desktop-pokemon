@@ -4,12 +4,12 @@ import random
 from .config import (
     DAZED_MS,
     FAINT_REST_MS,
-    MAX_NUM,
     MAX_PARTY,
     MOVE_POWER,
     SPAWN_MS,
     TYPE_CHART,
 )
+from . import dex
 from .util import chant, josa
 
 
@@ -42,11 +42,13 @@ class BattleMixin:
         return [p for p in self.pets if not p.wild]
 
     def spawn_wild(self):
+        """상대할 내 포켓몬을 먼저 정하고, 그 레벨에 맞는 야생 포켓몬을 부른다."""
         party = self.party()
-        avg = sum(p.level for p in party) / len(party)
-        level = max(2, round(avg) + random.randint(-2, 1))
+        rested = [p for p in party if p.state != "fainted" and p.hp >= p.max_hp * .4]
+        self.wild_target = random.choice(rested or party)
+        level = max(2, self.wild_target.level + random.randint(-2, 1))
         self.spawning = True
-        self.request(random.randint(1, MAX_NUM), save=False, wild=True,
+        self.request(dex.pick_wild(level), save=False, wild=True,
                      stats={"level": level})
 
     def battle_tick(self, dt):
@@ -85,7 +87,11 @@ class BattleMixin:
                     w.leave()
                 return
             healthy = [p for p in targets if p.hp >= p.max_hp * .4]   # 지친 포켓몬은 되도록 쉬게
-            t = min(healthy or targets, key=lambda p: abs(p.cx - w.cx))
+            target = self.wild_target
+            if target in healthy:               # 레벨을 맞춰 둔 상대에게 다가간다
+                t = target
+            else:
+                t = min(healthy or targets, key=lambda p: abs(p.cx - w.cx))
             dx = t.cx - w.cx
             if not getattr(w, "approach_speed", None):
                 w.approach_speed = w.pick_speed(1.1)
@@ -138,6 +144,7 @@ class BattleMixin:
             if ups:
                 winner.say(f"레벨 업! Lv.{winner.level}", 2500)
                 self.dialog.push(winner, "Joyous", f"레벨 업! Lv.{winner.level} 달성!")
+                self.root.after(2700, lambda: self.try_evolve(winner))
             self.save()
         else:
             loser.set_state("fainted", FAINT_REST_MS)
