@@ -19,6 +19,7 @@ from pathlib import Path
 
 SAVE_FOLDER = "DesktopPokemon"
 HEARTBEAT_STALE_S = 180
+LOG_LIMIT = 300                       # 기록은 최근 이만큼만 저장
 
 
 def machine_name():
@@ -64,9 +65,14 @@ class SaveStore:
         return self.save_dir / "running.json" if self.save_dir else None
 
     def set_save_dir(self, folder):
-        self._set_setting("save_dir", str(folder) if folder else None)
+        self.set_setting("save_dir", str(folder) if folder else None)
 
-    def _set_setting(self, key, value):
+    def get_setting(self, key, default=None):
+        value = (read_json(self.settings_file, {}) or {}).get(key)
+        return default if value is None else value
+
+    def set_setting(self, key, value):
+        """이 PC 전용 설정 (settings.json). 클라우드로 공유되지 않음."""
         settings = read_json(self.settings_file, {}) or {}
         settings[key] = value
         write_json(self.settings_file, settings)
@@ -77,7 +83,7 @@ class SaveStore:
         return (read_json(self.settings_file, {}) or {}).get("nickname") or self.machine
 
     def set_nickname(self, name):
-        self._set_setting("nickname", name.strip() or None)
+        self.set_setting("nickname", name.strip() or None)
 
     def label(self, machine):
         """PC 이름을 사람이 알아보는 이름으로 (별명이 있으면 별명)."""
@@ -91,14 +97,20 @@ class SaveStore:
     # -------------------------------------------------- 불러오기 / 저장
     @staticmethod
     def parse(data):
-        """저장 파일 내용 -> {"party": [...], "machine", "saved_at"}. 예전 형식(파티 리스트만)도 읽는다."""
+        """저장 파일 내용 -> 진행 상황 dict. 예전 형식(파티 리스트만, 보관함·도감 없음)도 읽는다.
+
+        {"party": [...], "box": [...], "seen": [번호], "caught": [번호], "log": [...],
+         "machine": 마지막 저장 PC, "saved_at": 시각, "machines": {PC: 별명}}
+        """
         if isinstance(data, list):
-            return {"party": data, "machine": None, "saved_at": 0.0, "machines": {}}
-        if isinstance(data, dict) and isinstance(data.get("party"), list):
-            return {"party": data["party"], "machine": data.get("machine"),
-                    "saved_at": float(data.get("saved_at") or 0),
-                    "machines": data.get("machines") or {}}
-        return None
+            data = {"party": data}
+        if not (isinstance(data, dict) and isinstance(data.get("party"), list)):
+            return None
+        return {"party": data["party"], "box": data.get("box") or [],
+                "seen": data.get("seen") or [], "caught": data.get("caught") or [],
+                "log": data.get("log") or [],
+                "machine": data.get("machine"), "saved_at": float(data.get("saved_at") or 0),
+                "machines": data.get("machines") or {}}
 
     def peek(self, path=None):
         """저장 파일을 읽기만 한다 (없으면 None)."""
@@ -110,8 +122,10 @@ class SaveStore:
         self.machines = dict(rec["machines"]) if rec else {}
         return rec
 
-    def save(self, party):
-        """저장하고 실제로 쓴 경로를 돌려준다."""
+    def save(self, state):
+        """저장하고 실제로 쓴 경로를 돌려준다. state는 파티 리스트 또는 parse()와 같은 모양의 dict."""
+        if isinstance(state, list):
+            state = {"party": state}
         target = self.save_file
         target.parent.mkdir(parents=True, exist_ok=True)
         current = self.peek()
@@ -123,8 +137,11 @@ class SaveStore:
         # 다른 PC들이 남긴 별명은 유지하고 내 별명만 갱신
         self.machines = {**(current["machines"] if current else {}), **self.machines,
                          self.machine: self.nickname}
-        write_json(target, {"version": 2, "machine": self.machine, "saved_at": now,
-                            "machines": self.machines, "party": party})
+        write_json(target, {"version": 3, "machine": self.machine, "saved_at": now,
+                            "machines": self.machines,
+                            "party": state["party"], "box": state.get("box", []),
+                            "seen": sorted(state.get("seen", [])), "caught": sorted(state.get("caught", [])),
+                            "log": state.get("log", [])[-LOG_LIMIT:]})
         if target == self.save_file:
             self.loaded_at = now
         return target

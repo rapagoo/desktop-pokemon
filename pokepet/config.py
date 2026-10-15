@@ -81,6 +81,7 @@ CAPTURE_GUARD = True             # 화면 공유·녹화·스크린샷에 포켓
 AUTO_HIDE_FULLSCREEN = True      # 영상·발표 같은 전체 화면 앱이 앞에 오면 자동으로 숨기기
 FULLSCREEN_CHECK_MS = 1_000
 AUTOSAVE_MS = 120_000            # 자동 저장 간격 (쓰다듬기·HP 회복 등도 저장되게)
+HOTKEY = ("ctrl+alt", "P")       # 관리 창 단축키 (어디서든 동작)
 
 
 def apply_debug():

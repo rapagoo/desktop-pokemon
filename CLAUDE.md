@@ -39,7 +39,8 @@ python tools/build_dex.py           # 도감 표(pokepet/data/dex.json) 다시 �
 | `evolution.py` | `EvolutionMixin`: 진화 확인 시점, "…어라!?" 연출, 새 모습으로 교체 |
 | `battle.py` | `calc_damage`·`type_effect`(순수 함수) + `BattleMixin`(야생 등장, 배틀, 포획) |
 | `screen.py` | Windows API: 화면 공유·녹화에서 창 빼기, 전체 화면 앱 감지 |
-| `app.py` | `App(BattleMixin, EvolutionMixin)`: 불러오기, 메인 루프(30ms), 메뉴, 숨기기(이유별 `set_hidden`), 저장 |
+| `manager.py` | 관리 창 (파티·보관함·도감·기록·설정 탭). 열려 있는 동안 1초마다 지금 탭만 새로 그림 |
+| `app.py` | `App(BattleMixin, EvolutionMixin)`: 불러오기, 메인 루프(30ms), 메뉴, 숨기기(이유별 `set_hidden`), 저장, 보관함, 도감·기록(`seen`/`caught`/`events`) |
 
 - config 값은 각 모듈이 import 시점에 가져간다. 실행 중에 바꾸려면 다른 모듈 import 전에 바꿔야 한다 (`__main__.py` 참고).
 - Tk 객체는 메인 스레드에서만 만든다. 다운로드는 스레드에서 하고 `App.loaded` 큐로 넘긴다.

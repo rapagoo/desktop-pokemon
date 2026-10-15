@@ -110,3 +110,28 @@ def evolution_for(num, level, friendship, hour, traded=False, rng=random):
             others.append(evo["to"])
     pool = friendly or others
     return rng.choice(pool) if pool else None
+
+
+def evolution_hint(num, friendship=0):
+    """관리 창에 보여 줄 '다음 진화' 안내. 진화하지 않으면 None.
+
+    예: "리자드까지 Lv.16", "피카츄: 쓰다듬기 12/30", "팬텀: 다른 PC에서 켜면", "블래키: 쓰다듬기 30/30 (밤)"
+    """
+    e = entry(num)
+    if not e or not e["evo"]:
+        return None
+    parts = []
+    order = {"friendship": 0, "trade": 1}               # 직접 노릴 수 있는 진화를 먼저 보여 줌
+    for evo in sorted(e["evo"], key=lambda x: order.get(x["method"], 2)):
+        to = name(evo["to"])
+        m = evo["method"]
+        if m == "trade":
+            parts.append(f"{to}: 다른 PC에서 켜면")
+        elif m == "friendship":
+            when = {"day": " (낮)", "night": " (밤)"}.get(evo.get("time"), "")
+            parts.append(f"{to}: 쓰다듬기 {min(friendship, FRIENDSHIP_PATS)}/{FRIENDSHIP_PATS}{when}")
+        else:
+            parts.append(f"{to}까지 Lv.{evo_level(num, evo)}")
+    if len(parts) > 2:                                   # 이브이처럼 갈래가 많으면 줄여서
+        return " / ".join(parts[:2]) + f" 외 {len(parts) - 2}가지"
+    return " / ".join(parts)

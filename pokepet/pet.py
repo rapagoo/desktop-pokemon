@@ -71,6 +71,7 @@ class Pet:
         self.cv.bind("<B1-Motion>", self.on_motion)
         self.cv.bind("<ButtonRelease-1>", self.on_release)
         self.cv.bind("<Button-3>", self.on_menu)
+        self.cv.bind("<Double-Button-1>", lambda e: app.open_manager())
         self.place()
         if CAPTURE_GUARD:                 # 창이 실제로 만들어진 뒤에 걸어야 적용됨
             self.win.update_idletasks()
@@ -389,6 +390,10 @@ class Pet:
             else:
                 self.say(random.choice(["!", "크르르…", "?!"]), 1000)
             return
+        self.pat()
+
+    def pat(self):
+        """쓰다듬기 (클릭 또는 관리 창 버튼). 친밀도가 오른다."""
         if self.state == "sleep":
             self.say("…!? 깼다!", 1500)
             self.set_state("idle", 2000)

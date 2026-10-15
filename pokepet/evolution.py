@@ -27,6 +27,7 @@ class EvolutionMixin:
             n = self.arrivals["seen"]          # 불러오기에 실패한 포켓몬은 빼고 실제로 온 수
             what = josa(pet.name, "이가") if n == 1 else f"포켓몬 {n}마리가"
             self.dialog.push(pet, "Happy", f"{src}에서 {what} 도착했다!")
+            self.add_event(f"{src}에서 {what} 도착했다")
         pet.say(f"{src}에서 왔어!", 2000)
         self.root.after(1500, lambda: self.try_evolve(pet, traded=True))
 
@@ -86,5 +87,6 @@ class EvolutionMixin:
         how = "통신 교환으로 " if getattr(old, "by_trade", False) else ""
         self.dialog.push(new, "Joyous",
                          f"축하해! {how}{josa(old.name, '은는')} {josa_ro(new.name)} 진화했다!")
-        self.log(f"진화 완료: {old.name} -> {new.name}")
+        self.mark_caught(new.num)
+        self.add_event(f"{how}{josa(old.name, '이가')} {josa_ro(new.name)} 진화했다")
         self.save()

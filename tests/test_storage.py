@@ -105,6 +105,23 @@ class TestSaveStore(unittest.TestCase):
         home.save(EEVEE)                       # 집이 저장해도 학원 별명은 남아 있어야 함
         self.assertEqual(academy.peek()["machines"], {"DESKTOP-34NQTUN": "학원", "HOME-PC": "집"})
 
+    def test_box_dex_and_log_round_trip(self):
+        s = make_store(self.root, "academy", self.cloud)
+        s.save({"party": PIKA, "box": EEVEE, "seen": {16, 4, 25}, "caught": {25},
+                "log": [{"t": 1, "text": f"#{i}"} for i in range(500)]})
+        rec = s.load()
+        self.assertEqual(rec["box"], EEVEE)
+        self.assertEqual(rec["seen"], [4, 16, 25])
+        self.assertEqual(rec["caught"], [25])
+        self.assertEqual(len(rec["log"]), 300)               # 최근 300개만
+        self.assertEqual(rec["log"][-1]["text"], "#499")
+
+    def test_old_save_has_empty_box_and_dex(self):
+        s = make_store(self.root, "academy")
+        s.local_file.write_text(json.dumps(PIKA), encoding="utf-8")
+        rec = s.load()
+        self.assertEqual((rec["box"], rec["seen"], rec["caught"], rec["log"]), ([], [], [], []))
+
     def test_label_without_nickname_is_machine_name(self):
         s = make_store(self.root, "academy", self.cloud)
         self.assertEqual(s.label("academy"), "academy")

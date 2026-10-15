@@ -1,8 +1,11 @@
-"""Windows 화면 관련 기능: 화면 공유·녹화에서 창 빼기, 전체 화면 앱 감지.
+"""Windows 화면 관련 기능: 화면 공유·녹화에서 창 빼기, 전체 화면 앱 감지, 전역 단축키.
 
 Windows가 아니거나 API가 없으면 조용히 아무것도 하지 않는다.
 """
 import ctypes
+import queue
+import sys
+import threading
 from ctypes import wintypes
 
 WDA_EXCLUDEFROMCAPTURE = 0x11      # Windows 10 2004 이상: 캡처에서 빠지고 내 화면엔 보임
@@ -66,3 +69,36 @@ def fullscreen_app_active(own_hwnds=()):
                 and rect.right >= m.right and rect.bottom >= m.bottom)
     except Exception:
         return False
+
+
+MOD_KEYS = {"alt": 0x1, "ctrl": 0x2, "shift": 0x4, "win": 0x8}
+MOD_NOREPEAT = 0x4000
+WM_HOTKEY = 0x0312
+
+
+def start_hotkey(hotkey):
+    """전역 단축키 등록. 눌릴 때마다 돌려준 큐에 값이 들어간다 (메인 루프에서 꺼내 씀).
+
+    RegisterHotKey는 등록한 스레드의 메시지 큐로 알림을 보내므로, Tk와 섞이지 않게
+    전용 스레드에서 등록하고 메시지를 기다린다.
+    """
+    events = queue.Queue()
+    if not user32:
+        return events
+    mods, key = hotkey
+    flags = MOD_NOREPEAT
+    for m in mods.split("+"):
+        flags |= MOD_KEYS[m.strip().lower()]
+    vk = ord(key.upper())
+
+    def run():
+        if not user32.RegisterHotKey(None, 1, flags, vk):
+            print(f"단축키 {mods}+{key} 등록 실패 (다른 프로그램이 쓰는 중일 수 있음)", file=sys.stderr)
+            return
+        msg = wintypes.MSG()
+        while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
+            if msg.message == WM_HOTKEY:
+                events.put(True)
+
+    threading.Thread(target=run, daemon=True).start()
+    return events

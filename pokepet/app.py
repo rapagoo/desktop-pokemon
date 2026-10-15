@@ -6,6 +6,7 @@ import random
 import shutil
 import sys
 import threading
+import time
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog
@@ -17,8 +18,10 @@ from .config import (
     FULLSCREEN_CHECK_MS,
     FIRST_SPAWN_MS,
     GREETS,
+    HOTKEY,
     KO_NAMES,
     MAX_NUM,
+    MAX_PARTY,
     NAMES_FILE,
     PARTY_FILE,
     SETTINGS_FILE,
@@ -35,6 +38,7 @@ from . import assets, dex, screen
 from .battle import BattleMixin
 from .evolution import EvolutionMixin
 from .dialog import Dialog
+from .manager import Manager
 from .pet import Pet
 
 
@@ -77,18 +81,20 @@ class App(BattleMixin, EvolutionMixin):
                 "두 곳에서 같이 켜 두면 한쪽 진행 상황이 저장되지 않을 수 있어요.\n\n그래도 실행할까요?"):
             self.root.destroy()
             sys.exit(0)
-        rec = self.store.load()
+        rec = self.store.load() or self.store.parse([{"num": n} for n in DEFAULT_PARTY])
+        if not rec["party"] and not rec["box"]:
+            rec["party"] = [{"num": n} for n in DEFAULT_PARTY]
         self.loading = 0                  # 불러오는 중인 파티 포켓몬 수 (0이 될 때까지 저장 안 함)
-        self.unloaded = []                # 불러오기에 실패한 포켓몬 기록 (저장할 때 그대로 유지)
-        self.arrivals = {"count": 0, "from": None, "seen": 0}   # 다른 PC에서 건너온 포켓몬 (교환)
-        self.load_party(rec["party"] if rec and rec["party"] else [{"num": n} for n in DEFAULT_PARTY])
+        self.restore(rec)
         self.heartbeat()
         self.root.after(AUTOSAVE_MS, self.autosave)
 
         self.menu = tk.Menu(self.root, tearoff=0, font=("맑은 고딕", 9))
+        self.manager = None               # 관리 창 (처음 열 때 만듦)
+        self.hotkeys = screen.start_hotkey(HOTKEY)
+        self.auto_hide = self.store.get_setting("auto_hide", AUTO_HIDE_FULLSCREEN)
         self.root.after(TICK, self.loop)
-        if AUTO_HIDE_FULLSCREEN:
-            self.root.after(FULLSCREEN_CHECK_MS, self.check_fullscreen)
+        self.root.after(FULLSCREEN_CHECK_MS, self.check_fullscreen)
 
     def log(self, msg):
         """--debug 일 때만 콘솔에 이벤트 출력."""
@@ -107,25 +113,47 @@ class App(BattleMixin, EvolutionMixin):
             self.request(p["num"], p.get("shiny", False), save=False, traded=traded, record=p,
                          stats={k: p[k] for k in ("level", "exp", "hp", "friendship") if k in p})
 
-    def replace_party(self, party):
-        """다른 PC에서 저장한 파티로 바꾼다 (지금 화면의 내 포켓몬은 정리)."""
+    def restore(self, rec):
+        """저장 기록(파티·보관함·도감·기록)으로 진행 상황을 채운다."""
+        self.unloaded = []                # 불러오기에 실패한 포켓몬 기록 (저장할 때 그대로 유지)
+        self.arrivals = {"count": 0, "from": None, "seen": 0}   # 다른 PC에서 건너온 포켓몬 (교환)
+        self.box = list(rec["box"])       # 보관함: 파티 밖의 포켓몬 기록
+        self.seen = set(rec["seen"])      # 도감: 만난 포켓몬 번호
+        self.caught = set(rec["caught"])  # 도감: 잡은 포켓몬 번호 (진화·교환으로 얻은 것 포함)
+        self.events = list(rec["log"])    # 기록 탭
+        self.load_party(rec["party"])
+
+    def replace_party(self, rec):
+        """다른 PC에서 저장한 기록으로 바꾼다 (지금 화면의 내 포켓몬은 정리)."""
         if self.battle:
             self.abort_battle()
         for p in self.party():
             self.pets.remove(p)
             p.destroy()
-        self.unloaded = []
-        self.arrivals = {"count": 0, "from": None, "seen": 0}
-        self.load_party(party)
+        self.restore(rec)
+
+    def pet_record(self, p):
+        return {"num": p.num, "shiny": p.shiny, "level": p.level, "exp": p.exp,
+                "hp": round(p.hp), "friendship": p.friendship, "machine": self.store.machine}
+
+    def add_event(self, text):
+        """기록 탭에 남길 일 (포획, 진화, 레벨 업 등)."""
+        self.events.append({"t": time.time(), "pc": self.store.nickname, "text": text})
+        self.log(f"기록: {text}")
+        self.refresh_manager()
+
+    def mark_caught(self, num):
+        self.seen.add(num)
+        self.caught.add(num)
 
     def save(self):
         if self.loading:                  # 파티를 다 불러오기 전에 저장하면 일부가 빠짐
             return
-        party = [{"num": p.num, "shiny": p.shiny, "level": p.level, "exp": p.exp,
-                  "hp": round(p.hp), "friendship": p.friendship, "machine": self.store.machine}
-                 for p in self.party()] + self.unloaded
+        party = [self.pet_record(p) for p in self.party()] + self.unloaded
+        state = {"party": party, "box": self.box, "seen": self.seen, "caught": self.caught,
+                 "log": self.events}
         try:
-            where = self.store.save(party)
+            where = self.store.save(state)
             if where != self.store.save_file:
                 self.log(f"다른 PC가 먼저 저장해서 {where.name} 에 따로 저장했어요")
         except OSError as ex:
@@ -165,7 +193,7 @@ class App(BattleMixin, EvolutionMixin):
                 f"(포켓몬 {len(found['party'])}마리, 최고 Lv.{top})\n\n"
                 "그 기록으로 바꿀까요?\n아니요를 누르면 지금 이 PC의 기록으로 덮어써요.")
             if use_found:
-                self.replace_party(self.store.load()["party"])
+                self.replace_party(self.store.load())
             else:
                 self.store.loaded_at = found["saved_at"]
                 self.save()
@@ -227,15 +255,16 @@ class App(BattleMixin, EvolutionMixin):
             print(f"#{num} 불러오기 실패: {ex}", file=sys.stderr)
             self.loaded.put({"failed": True, "wild": wild, **extra})
 
-    def portrait(self, num, emotion):
+    def portrait(self, num, emotion, zoom=2):
+        """표정 초상화 (원본 40px, zoom배). 없으면 Normal, 그것도 없으면 None."""
         for emo in (emotion, "Normal"):
-            key = (num, emo)
+            key = (num, emo, zoom)
             if key in self.portraits:
                 return self.portraits[key]
             path = SPRITE_DIR / f"portrait-{num}-{emo}.png"
             if path.exists():
                 try:
-                    self.portraits[key] = tk.PhotoImage(file=str(path)).zoom(2)
+                    self.portraits[key] = tk.PhotoImage(file=str(path)).zoom(zoom)
                     return self.portraits[key]
                 except tk.TclError:
                     pass
@@ -281,6 +310,10 @@ class App(BattleMixin, EvolutionMixin):
         if self.hidden:
             pet.win.withdraw()
         self.pets.append(pet)
+        self.seen.add(num)
+        if not item["wild"]:
+            self.caught.add(num)
+        self.refresh_manager()
         if item["wild"]:
             self.wild, self.spawning = pet, False
             self.dialog.push(pet, "Determined",
@@ -295,6 +328,9 @@ class App(BattleMixin, EvolutionMixin):
     def loop(self):
         while not self.loaded.empty():
             self._spawn(self.loaded.get())
+        while not self.hotkeys.empty():               # Ctrl+Alt+P
+            self.hotkeys.get()
+            self.open_manager()
         if not self.hidden:
             for p in list(self.pets):
                 p.tick(TICK)
@@ -323,6 +359,8 @@ class App(BattleMixin, EvolutionMixin):
             nxt = exp_for(pet.level + 1) - pet.exp
             m.add_command(label=f"타입 {'/'.join(pet.dex['types'])} · 다음 레벨까지 {nxt}", state="disabled")
         m.add_separator()
+        m.add_command(label="관리 창 열기  (Ctrl+Alt+P)", command=self.open_manager)
+        m.add_separator()
         m.add_command(label="야생 포켓몬 부르기", command=self.call_wild)
         m.add_command(label="도감 번호로 부르기…", command=self.ask_number)
         if not pet.wild:
@@ -349,22 +387,83 @@ class App(BattleMixin, EvolutionMixin):
         n = simpledialog.askinteger("포켓몬 부르기", f"도감 번호 (1~{MAX_NUM})",
                                     minvalue=1, maxvalue=MAX_NUM, parent=self.root)
         if n:
-            self.request(n)
+            if len(self.party()) >= MAX_PARTY:          # 파티가 가득 차면 보관함으로
+                self.box.append({"num": n, "level": START_LEVEL, "machine": self.store.machine})
+                self.mark_caught(n)
+                self.save()
+                self.refresh_manager()
+            else:
+                self.request(n)
+
+    def take_off_screen(self, pet):
+        """화면에서 포켓몬 창을 치운다 (배틀 중이면 배틀 취소)."""
+        if self.battle and pet in (self.battle["ally"], self.wild):
+            self.abort_battle()
+        if pet is self.wild:
+            self.wild_gone(pet)
+        elif pet in self.pets:
+            self.pets.remove(pet)
+            pet.destroy()
 
     def remove(self, pet):
+        """돌려보내기. 내 포켓몬은 영영 사라지므로 한 번 더 묻는다."""
+        if not pet.wild and not messagebox.askyesno(
+                "돌려보내기", f"{josa(pet.name, '을를')} 정말 돌려보낼까요? (Lv.{pet.level})\n"
+                "돌려보낸 포켓몬은 다시 불러올 수 없어요.\n\n보관함으로 보내려면 관리 창(Ctrl+Alt+P)을 쓰세요.",
+                icon="warning", parent=self.root):
+            return
         pet.say("바이바이~", 800)
 
         def bye():
             if pet in self.pets:
-                if self.battle and pet in (self.battle["ally"], self.wild):
-                    self.abort_battle()
-                if pet is self.wild:
-                    self.wild_gone(pet)
-                    return
-                self.pets.remove(pet)
-                pet.destroy()
+                if not pet.wild:
+                    self.add_event(f"{pet.name}(Lv.{pet.level})을(를) 돌려보냈다")
+                self.take_off_screen(pet)
                 self.save()
+                self.refresh_manager()
         self.root.after(800, bye)
+
+    # -------------------------------------------------- box (보관함)
+    def to_box(self, pet):
+        if pet not in self.party() or len(self.party()) <= 1 or pet.state in ("battle", "evolving"):
+            return False
+        self.box.append(self.pet_record(pet))
+        pet.say("다녀올게!", 800)
+        self.root.after(600, lambda: (self.take_off_screen(pet), self.save(), self.refresh_manager()))
+        return True
+
+    def from_box(self, index):
+        if len(self.party()) >= MAX_PARTY or not (0 <= index < len(self.box)):
+            return False
+        rec = self.box.pop(index)
+        self.loading += 1                 # 실패하면 unloaded로 보존됨
+        self.request(rec["num"], rec.get("shiny", False), save=True, record=rec,
+                     stats={k: rec[k] for k in ("level", "exp", "hp", "friendship") if k in rec})
+        self.refresh_manager()
+        return True
+
+    def release_from_box(self, index):
+        if not (0 <= index < len(self.box)):
+            return
+        rec = self.box[index]
+        name = poke_name(rec["num"], self.names)
+        if messagebox.askyesno("놓아주기", f"보관함의 {josa(name, '을를')} 정말 놓아줄까요? "
+                               f"(Lv.{rec.get('level', START_LEVEL)})\n다시 불러올 수 없어요.",
+                               icon="warning", parent=self.manager.win if self.manager else self.root):
+            self.box.pop(index)
+            self.add_event(f"보관함의 {name}(Lv.{rec.get('level', START_LEVEL)})을(를) 놓아줬다")
+            self.save()
+            self.refresh_manager()
+
+    # -------------------------------------------------- 관리 창
+    def open_manager(self, tab=None):
+        if self.manager is None:
+            self.manager = Manager(self)
+        self.manager.show(tab)
+
+    def refresh_manager(self):
+        if self.manager is not None:
+            self.manager.refresh()
 
     # -------------------------------------------------- hiding
     @property
@@ -399,8 +498,14 @@ class App(BattleMixin, EvolutionMixin):
     def check_fullscreen(self):
         """영상·발표 같은 전체 화면 앱이 앞에 있으면 숨기고, 끝나면 다시 보인다."""
         own = {screen.hwnd_of(p.win) for p in self.pets} | {screen.hwnd_of(self.dialog.win)}
-        self.set_hidden("fullscreen", screen.fullscreen_app_active(own))
+        if self.manager is not None:
+            own.add(screen.hwnd_of(self.manager.win))
+        self.set_hidden("fullscreen", self.auto_hide and screen.fullscreen_app_active(own))
         self.root.after(FULLSCREEN_CHECK_MS, self.check_fullscreen)
+
+    def set_auto_hide(self, on):
+        self.auto_hide = bool(on)
+        self.store.set_setting("auto_hide", self.auto_hide)
 
     def quit(self):
         self.save()

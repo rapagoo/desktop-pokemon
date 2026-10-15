@@ -144,6 +144,7 @@ class BattleMixin:
             if ups:
                 winner.say(f"레벨 업! Lv.{winner.level}", 2500)
                 self.dialog.push(winner, "Joyous", f"레벨 업! Lv.{winner.level} 달성!")
+                self.add_event(f"{winner.name} Lv.{winner.level} 달성")
                 self.root.after(2700, lambda: self.try_evolve(winner))
             self.save()
         else:
@@ -157,16 +158,26 @@ class BattleMixin:
     def catch(self, wild):
         if wild is not self.wild or wild.state != "dazed":
             return
-        if len(self.party()) >= MAX_PARTY:
-            wild.say("파티가 가득 찼어!", 1500)
-            return
-        wild.wild = False
-        wild.hp = wild.max_hp
-        wild.set_state("idle", 2000)
-        wild.say("♥", 1500)
-        self.wild = None
+        self.mark_caught(wild.num)
         self.spawn_t = random.randint(*SPAWN_MS)
-        self.dialog.push(wild, "Joyous", f"{josa(wild.name, '을를')} 잡았다! 잘 부탁해!")
+        if len(self.party()) >= MAX_PARTY:          # 파티가 가득 차면 보관함으로
+            wild.hp = wild.max_hp
+            wild.wild = False
+            self.box.append(self.pet_record(wild))
+            wild.wild = True
+            wild.set_state("idle", 10 ** 9)          # 사라질 때까지 다시 클릭해도 또 잡히지 않게
+            wild.say("♥ 보관함으로!", 1200)
+            self.dialog.push(wild, "Joyous", f"{josa(wild.name, '을를')} 잡았다! 파티가 가득 차서 보관함으로 보냈어요")
+            self.add_event(f"{wild.name}(Lv.{wild.level})을(를) 잡아서 보관함으로 보냈다")
+            self.root.after(900, lambda: self.wild_gone(wild))
+        else:
+            wild.wild = False
+            wild.hp = wild.max_hp
+            wild.set_state("idle", 2000)
+            wild.say("♥", 1500)
+            self.wild = None
+            self.dialog.push(wild, "Joyous", f"{josa(wild.name, '을를')} 잡았다! 잘 부탁해!")
+            self.add_event(f"{wild.name}(Lv.{wild.level})을(를) 잡았다")
         self.save()
 
     def wild_escape(self, wild):

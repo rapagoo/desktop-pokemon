@@ -97,6 +97,13 @@ class TestEvolution(unittest.TestCase):
         self.assertIsNone(self.evo(93, level=100))
         self.assertEqual(self.evo(93, traded=True), 94)      # 고우스트 → 팬텀
 
+    def test_hints(self):
+        self.assertEqual(dex.evolution_hint(4), "리자드까지 Lv.16")
+        self.assertIn("12/30", dex.evolution_hint(172, friendship=12))
+        self.assertIn("다른 PC", dex.evolution_hint(93))
+        self.assertIn("외", dex.evolution_hint(133))
+        self.assertIsNone(dex.evolution_hint(6))
+
     def test_no_evolution(self):
         self.assertIsNone(self.evo(6, level=100, friendship=999, traded=True))
 
