@@ -26,11 +26,17 @@ SPRITE_DIR = BASE / "sprites"
 PARTY_FILE = BASE / "party.json"
 NAMES_FILE = BASE / "names.json"
 
-SPRITE_URL = ("https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/"
-              "versions/generation-v/black-white/animated/{shiny}{num}.gif")
+SPRITE_ROOT = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/"
+# 우선순위: 5세대 BW 도트 애니(1~649) → Showdown 애니 → 정지 이미지
+SPRITE_SOURCES = [
+    ("versions/generation-v/black-white/animated/{shiny}{num}.gif", 649),
+    ("other/showdown/{shiny}{num}.gif", None),
+    ("{shiny}{num}.png", None),
+]
 SPECIES_URL = "https://pokeapi.co/api/v2/pokemon-species/{num}/"
-MAX_NUM = 649            # 5세대 애니메이션 스프라이트가 있는 범위
-SCALE = 2                # 스프라이트 확대 배율
+MAX_NUM = 1025           # 전체 도감
+SCALE = 2                # 스프라이트 확대 배율 (큰 스프라이트는 1배)
+BIG_SPRITE = 100         # 이 픽셀보다 크면 확대하지 않음
 KEY = "#fe00fe"          # 투명 처리할 배경색
 TICK = 30                # ms
 GRAVITY = 0.9
@@ -132,17 +138,20 @@ class Sprite:
     """GIF 프레임을 합성해 좌/우 방향 확대 이미지 리스트로 보관."""
 
     def __init__(self, path):
-        data = path.read_bytes()
-        info = gif_frame_info(data)
-        raw = []
-        while True:
-            try:
-                raw.append(tk.PhotoImage(file=str(path), format=f"gif -index {len(raw)}"))
-            except tk.TclError:
-                break
+        if path.suffix == ".png":
+            info, raw = [], [self._load_png(path)]
+        else:
+            info = gif_frame_info(path.read_bytes())
+            raw = []
+            while True:
+                try:
+                    raw.append(tk.PhotoImage(file=str(path), format=f"gif -index {len(raw)}"))
+                except tk.TclError:
+                    break
         if not raw:
-            raise ValueError("빈 GIF")
+            raise ValueError("빈 이미지")
         w, h = raw[0].width(), raw[0].height()
+        scale = SCALE if max(w, h) <= BIG_SPRITE else 1
 
         # disposal 방식에 맞게 프레임 합성
         frames, base = [], tk.PhotoImage(width=w, height=h)
@@ -157,10 +166,21 @@ class Sprite:
             elif disp == 2:
                 base = tk.PhotoImage(width=w, height=h)
         self.delays = [(info[k][1] if k < len(info) else 100) for k in range(len(frames))]
-        self.left = [f.zoom(SCALE) for f in frames]                 # 원본은 왼쪽을 봄
-        self.right = [f.subsample(-1, 1).zoom(SCALE) for f in frames]
-        self.w, self.h = w * SCALE, h * SCALE
-        self.pad_bottom = self._bottom_padding(frames[0]) * SCALE
+        self.left = [f.zoom(scale) for f in frames]                 # 원본은 왼쪽을 봄
+        self.right = [f.subsample(-1, 1).zoom(scale) for f in frames]
+        self.w, self.h = w * scale, h * scale
+        self.pad_bottom = self._bottom_padding(frames[0]) * scale
+
+    @staticmethod
+    def _load_png(path):
+        """반투명 픽셀은 투명색 창에서 테두리가 생기므로 완전 투명/불투명으로 정리."""
+        img = tk.PhotoImage(file=str(path))
+        for y in range(img.height()):
+            for x in range(img.width()):
+                a = img.tk.call(img, "get", x, y, "-withalpha")[3]
+                if 0 < int(a) < 255:
+                    img.transparency_set(x, y, int(a) < 128)
+        return img
 
     @staticmethod
     def _bottom_padding(img):
@@ -412,10 +432,8 @@ class App:
         threading.Thread(target=self._fetch, args=(num, shiny, save), daemon=True).start()
 
     def _fetch(self, num, shiny, save):
-        path = SPRITE_DIR / f"{'s' if shiny else ''}{num}.gif"
         try:
-            if not path.exists():
-                path.write_bytes(http_get(SPRITE_URL.format(num=num, shiny="shiny/" if shiny else "")))
+            path = self._download_sprite(num, shiny)
             if num not in KO_NAMES and str(num) not in self.names:
                 try:
                     sp = json.loads(http_get(SPECIES_URL.format(num=num)))
@@ -427,6 +445,27 @@ class App:
             self.loaded.put((num, shiny, path, save))
         except Exception as ex:
             print(f"#{num} 불러오기 실패: {ex}", file=sys.stderr)
+
+    @staticmethod
+    def _download_sprite(num, shiny):
+        stem = f"{'s' if shiny else ''}{num}"
+        for ext in (".gif", ".png"):
+            if (SPRITE_DIR / f"{stem}{ext}").exists():
+                return SPRITE_DIR / f"{stem}{ext}"
+        last = None
+        for tmpl, max_num in SPRITE_SOURCES:
+            if max_num and num > max_num:
+                continue
+            url = SPRITE_ROOT + tmpl.format(num=num, shiny="shiny/" if shiny else "")
+            try:
+                data = http_get(url)
+            except Exception as ex:
+                last = ex
+                continue
+            path = SPRITE_DIR / (stem + Path(tmpl).suffix)
+            path.write_bytes(data)
+            return path
+        raise last or RuntimeError("스프라이트 없음")
 
     def _spawn(self, num, shiny, path, save):
         key = path.name
