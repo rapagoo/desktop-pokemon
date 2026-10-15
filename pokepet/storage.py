@@ -46,6 +46,7 @@ class SaveStore:
         self.settings_file = Path(settings_file)
         self.machine = machine_name()
         self.loaded_at = 0.0          # 마지막으로 불러온(또는 저장한) 기록의 saved_at
+        self.machines = {}            # PC 이름 -> 별명 (저장 파일에 함께 기록, 모든 PC가 공유)
 
     # -------------------------------------------------- 위치
     @property
@@ -63,9 +64,26 @@ class SaveStore:
         return self.save_dir / "running.json" if self.save_dir else None
 
     def set_save_dir(self, folder):
+        self._set_setting("save_dir", str(folder) if folder else None)
+
+    def _set_setting(self, key, value):
         settings = read_json(self.settings_file, {}) or {}
-        settings["save_dir"] = str(folder) if folder else None
+        settings[key] = value
         write_json(self.settings_file, settings)
+
+    # -------------------------------------------------- PC 별명 ("학원", "집")
+    @property
+    def nickname(self):
+        return (read_json(self.settings_file, {}) or {}).get("nickname") or self.machine
+
+    def set_nickname(self, name):
+        self._set_setting("nickname", name.strip() or None)
+
+    def label(self, machine):
+        """PC 이름을 사람이 알아보는 이름으로 (별명이 있으면 별명)."""
+        if machine == self.machine:
+            return self.nickname
+        return self.machines.get(machine) or machine or "다른 PC"
 
     def describe(self):
         return str(self.save_dir.parent) if self.save_dir else "이 PC (party.json)"
@@ -75,10 +93,11 @@ class SaveStore:
     def parse(data):
         """저장 파일 내용 -> {"party": [...], "machine", "saved_at"}. 예전 형식(파티 리스트만)도 읽는다."""
         if isinstance(data, list):
-            return {"party": data, "machine": None, "saved_at": 0.0}
+            return {"party": data, "machine": None, "saved_at": 0.0, "machines": {}}
         if isinstance(data, dict) and isinstance(data.get("party"), list):
             return {"party": data["party"], "machine": data.get("machine"),
-                    "saved_at": float(data.get("saved_at") or 0)}
+                    "saved_at": float(data.get("saved_at") or 0),
+                    "machines": data.get("machines") or {}}
         return None
 
     def peek(self, path=None):
@@ -88,6 +107,7 @@ class SaveStore:
     def load(self):
         rec = self.peek()
         self.loaded_at = rec["saved_at"] if rec else 0.0
+        self.machines = dict(rec["machines"]) if rec else {}
         return rec
 
     def save(self, party):
@@ -100,7 +120,11 @@ class SaveStore:
             # 내가 불러온 뒤 다른 PC가 저장함 → 덮어쓰지 않음
             target = target.with_name(f"save-conflict-{self.machine}.json")
         now = time.time()
-        write_json(target, {"version": 2, "machine": self.machine, "saved_at": now, "party": party})
+        # 다른 PC들이 남긴 별명은 유지하고 내 별명만 갱신
+        self.machines = {**(current["machines"] if current else {}), **self.machines,
+                         self.machine: self.nickname}
+        write_json(target, {"version": 2, "machine": self.machine, "saved_at": now,
+                            "machines": self.machines, "party": party})
         if target == self.save_file:
             self.loaded_at = now
         return target

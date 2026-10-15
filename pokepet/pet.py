@@ -20,7 +20,6 @@ from .util import calc_stat, chant, exp_for
 
 class Pet:
     BUBBLE_H = 34
-    GROUNDED = ("walk", "idle", "sleep", "battle", "fainted", "dazed", "approach", "leave")
 
     def __init__(self, app, num, shiny, sprite, name, dex, wild=False,
                  level=START_LEVEL, exp=None, hp=None, friendship=0):
@@ -216,6 +215,17 @@ class Pet:
         speed = self.pick_speed(1.3)
         self.vx = -speed if self.cx < (l + r) / 2 else speed
 
+    def arrive(self, order=0):
+        """다른 PC에서 온 포켓몬: 화면 옆에서 걸어 들어온다. order번째일수록 더 뒤에서 출발."""
+        l, t, r, b = self.app.area
+        self.facing = random.choice((-1, 1))
+        behind = order * 180
+        self.x = l - self.cw - behind if self.facing > 0 else r + behind
+        self.y = self.floor
+        self.target_x = random.uniform(l + 40, r - self.cw - 40)
+        self.vx = self.facing * self.pick_speed()
+        self.state = "arrive"
+
     def land(self):
         if self.hp <= 0:
             self.set_state("dazed" if self.wild else "fainted", 5000 if self.wild else 20000)
@@ -241,12 +251,15 @@ class Pet:
                 else:
                     self.vy = 0
                     self.land()
-        elif self.state in ("approach", "leave"):
+        elif self.state in ("approach", "leave", "arrive"):
             self.y = self.floor
             self.x += self.vx
             if self.state == "leave" and (self.x + self.cw < l or self.x > r):
                 self.app.wild_gone(self)
                 return
+            if self.state == "arrive" and (self.x - self.target_x) * self.vx >= 0:
+                self.set_state("idle", 3000)
+                self.app.on_arrived(self)
         elif self.state in ("battle",):
             self.y = self.floor
         elif self.state in ("fainted", "dazed"):
@@ -275,7 +288,7 @@ class Pet:
             self.hp = min(self.max_hp, self.hp + self.max_hp * dt * rate / REGEN_FULL_MS)
 
         # 벽에 부딪히면 반대로 (야생 포켓몬이 들어오고 나갈 때는 제외)
-        if self.state not in ("approach", "leave"):
+        if self.state not in ("approach", "leave", "arrive"):
             if self.x < l:
                 self.x, self.vx = l, abs(self.vx)
             elif self.x > r - self.cw:
@@ -300,7 +313,7 @@ class Pet:
         if self.action:
             name = self.action
         else:
-            name = {"walk": "walk", "approach": "walk", "leave": "walk", "sleep": "sleep",
+            name = {"walk": "walk", "approach": "walk", "leave": "walk", "arrive": "walk", "sleep": "sleep",
                     "fainted": "faint", "dazed": "faint"}.get(self.state, "idle")
         if name != self.anim_name:
             self.anim_name, self.frame, self.frame_t = name, 0, 0
@@ -327,7 +340,7 @@ class Pet:
         off = self.sp.lift.get(name, 0)
         if self.sp.static:
             self.bob_t += dt
-            if self.state in ("walk", "approach", "leave"):   # 걸을 땐 통통 튀기
+            if self.state in ("walk", "approach", "leave", "arrive"):   # 걸을 땐 통통 튀기
                 off += abs(math.sin(self.bob_t / 110)) * 7
             elif self.state in ("idle", "drag", "battle"):   # 가만히 있을 땐 숨쉬기
                 off += 2 if (self.bob_t // 550) % 2 else 0

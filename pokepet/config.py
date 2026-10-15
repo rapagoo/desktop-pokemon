@@ -80,6 +80,7 @@ WILD_OVERLEVEL = 8               # 진화 레벨을 이만큼 넘으면 진화 �
 CAPTURE_GUARD = True             # 화면 공유·녹화·스크린샷에 포켓몬이 안 찍히게 (내 화면엔 보임)
 AUTO_HIDE_FULLSCREEN = True      # 영상·발표 같은 전체 화면 앱이 앞에 오면 자동으로 숨기기
 FULLSCREEN_CHECK_MS = 1_000
+AUTOSAVE_MS = 120_000            # 자동 저장 간격 (쓰다듬기·HP 회복 등도 저장되게)
 
 
 def apply_debug():

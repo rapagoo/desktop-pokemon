@@ -19,6 +19,17 @@ BLINKS = 10
 class EvolutionMixin:
     """App이 상속해서 쓰는 진화 관련 메서드 모음 (self는 App)."""
 
+    def on_arrived(self, pet):
+        """다른 PC에서 걸어 들어온 포켓몬이 자리에 도착함 → 인사하고 교환 진화 확인."""
+        src = self.arrivals["from"] or "다른 PC"
+        if not self.arrivals.get("announced"):
+            self.arrivals["announced"] = True
+            n = self.arrivals["seen"]          # 불러오기에 실패한 포켓몬은 빼고 실제로 온 수
+            what = josa(pet.name, "이가") if n == 1 else f"포켓몬 {n}마리가"
+            self.dialog.push(pet, "Happy", f"{src}에서 {what} 도착했다!")
+        pet.say(f"{src}에서 왔어!", 2000)
+        self.root.after(1500, lambda: self.try_evolve(pet, traded=True))
+
     def on_pat(self, pet):
         if pet.friendship >= FRIENDSHIP_PATS:          # 점프하고 착지한 뒤 확인
             self.root.after(1200, lambda: self.try_evolve(pet))
@@ -34,6 +45,7 @@ class EvolutionMixin:
         self.log(f"진화 시작: {pet.name} -> {poke_name(target, self.names)}"
                  f"{' (교환)' if traded else ''}")
         pet.set_state("evolving", 10 ** 9)
+        pet.by_trade = traded
         pet.say("…어라!?", 4000)
         self.dialog.push(pet, "Surprised", f"…어라!? {pet.name}의 모습이…!")
         # 새 모습을 받는 동안 깜빡이고, 받으면 finish_evolution 에서 교체
@@ -71,6 +83,8 @@ class EvolutionMixin:
         self.pets[self.pets.index(old)] = new
         old.destroy()
         new.say("✨ 진화!", 2500)
-        self.dialog.push(new, "Joyous", f"축하해! {josa(old.name, '은는')} {josa_ro(new.name)} 진화했다!")
+        how = "통신 교환으로 " if getattr(old, "by_trade", False) else ""
+        self.dialog.push(new, "Joyous",
+                         f"축하해! {how}{josa(old.name, '은는')} {josa_ro(new.name)} 진화했다!")
         self.log(f"진화 완료: {old.name} -> {new.name}")
         self.save()

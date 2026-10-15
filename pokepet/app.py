@@ -11,6 +11,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog
 
 from .config import (
+    AUTOSAVE_MS,
     AUTO_HIDE_FULLSCREEN,
     DEFAULT_PARTY,
     FULLSCREEN_CHECK_MS,
@@ -77,8 +78,12 @@ class App(BattleMixin, EvolutionMixin):
             self.root.destroy()
             sys.exit(0)
         rec = self.store.load()
+        self.loading = 0                  # 불러오는 중인 파티 포켓몬 수 (0이 될 때까지 저장 안 함)
+        self.unloaded = []                # 불러오기에 실패한 포켓몬 기록 (저장할 때 그대로 유지)
+        self.arrivals = {"count": 0, "from": None, "seen": 0}   # 다른 PC에서 건너온 포켓몬 (교환)
         self.load_party(rec["party"] if rec and rec["party"] else [{"num": n} for n in DEFAULT_PARTY])
         self.heartbeat()
+        self.root.after(AUTOSAVE_MS, self.autosave)
 
         self.menu = tk.Menu(self.root, tearoff=0, font=("맑은 고딕", 9))
         self.root.after(TICK, self.loop)
@@ -95,7 +100,11 @@ class App(BattleMixin, EvolutionMixin):
         for p in party:
             # 다른 PC에서 저장된 포켓몬이 이 PC에서 깨어나면 통신 교환으로 친다
             traded = p.get("machine") not in (None, self.store.machine)
-            self.request(p["num"], p.get("shiny", False), save=False, traded=traded,
+            if traded:
+                self.arrivals["count"] += 1
+                self.arrivals["from"] = self.store.label(p["machine"])
+            self.loading += 1
+            self.request(p["num"], p.get("shiny", False), save=False, traded=traded, record=p,
                          stats={k: p[k] for k in ("level", "exp", "hp", "friendship") if k in p})
 
     def replace_party(self, party):
@@ -105,12 +114,16 @@ class App(BattleMixin, EvolutionMixin):
         for p in self.party():
             self.pets.remove(p)
             p.destroy()
+        self.unloaded = []
+        self.arrivals = {"count": 0, "from": None, "seen": 0}
         self.load_party(party)
 
     def save(self):
+        if self.loading:                  # 파티를 다 불러오기 전에 저장하면 일부가 빠짐
+            return
         party = [{"num": p.num, "shiny": p.shiny, "level": p.level, "exp": p.exp,
                   "hp": round(p.hp), "friendship": p.friendship, "machine": self.store.machine}
-                 for p in self.party()]
+                 for p in self.party()] + self.unloaded
         try:
             where = self.store.save(party)
             if where != self.store.save_file:
@@ -127,6 +140,11 @@ class App(BattleMixin, EvolutionMixin):
             pass
         self.root.after(60_000, self.heartbeat)
 
+    def autosave(self):
+        """쓰다듬기·HP처럼 따로 저장 시점이 없는 진행 상황을 위해 주기적으로 저장."""
+        self.save()
+        self.root.after(AUTOSAVE_MS, self.autosave)
+
     def choose_save_dir(self):
         """학원 PC와 집 PC가 같이 보는 클라우드 폴더를 저장 위치로 고른다."""
         home = Path.home()
@@ -140,9 +158,10 @@ class App(BattleMixin, EvolutionMixin):
         self.store.set_save_dir(folder)
         if found and found["party"]:
             top = max(p.get("level", START_LEVEL) for p in found["party"])
+            where = found["machines"].get(found["machine"]) or found["machine"] or "다른 PC"
             use_found = messagebox.askyesno(
                 "저장 위치 바꾸기",
-                f"그 폴더에 {found['machine'] or '다른 PC'}에서 저장한 기록이 있어요.\n"
+                f"그 폴더에 {where}에서 저장한 기록이 있어요.\n"
                 f"(포켓몬 {len(found['party'])}마리, 최고 Lv.{top})\n\n"
                 "그 기록으로 바꿀까요?\n아니요를 누르면 지금 이 PC의 기록으로 덮어써요.")
             if use_found:
@@ -155,21 +174,31 @@ class App(BattleMixin, EvolutionMixin):
         self.store.heartbeat()
         self.log(f"저장 위치: {self.store.describe()}")
 
+    def ask_nickname(self):
+        """교환 대화창 등에 쓰는 이 PC의 별명 ("학원", "집")."""
+        name = simpledialog.askstring("이 PC 별명", "이 PC를 뭐라고 부를까요? (예: 학원, 집)",
+                                      initialvalue=self.store.nickname, parent=self.root)
+        if name is not None:
+            self.store.set_nickname(name)
+            self.save()
+
     def use_local_save(self):
         self.store.release()
         self.store.set_save_dir(None)
         self.save()
 
     # -------------------------------------------------- loading
-    def request(self, num, shiny=None, save=True, wild=False, stats=None, traded=False, replace=None):
+    def request(self, num, shiny=None, save=True, wild=False, stats=None, traded=False, replace=None,
+                record=None):
         """포켓몬을 백그라운드에서 받아 화면에 올린다.
 
         traded : 다른 PC에서 옮겨 와서 깨어남 (교환 진화 확인)
         replace: 진화 — 이 포켓몬 자리에 새 모습으로 바꿔 넣음
+        record : 저장 파일에서 불러온 원래 기록 (불러오기에 실패하면 그대로 보존)
         """
         if shiny is None:
             shiny = random.random() < SHINY_CHANCE
-        extra = {"traded": traded, "replace": replace}
+        extra = {"traded": traded, "replace": replace, "record": record}
         threading.Thread(target=self._fetch, args=(num, shiny, save, wild, stats or {}, extra),
                          daemon=True).start()
 
@@ -213,7 +242,11 @@ class App(BattleMixin, EvolutionMixin):
         return None
 
     def _spawn(self, item):
+        if item.get("record") is not None:
+            self.loading -= 1
         if item.get("failed"):
+            if item.get("record") is not None:
+                self.unloaded.append(item["record"])
             if item["wild"]:
                 self.spawning = False
                 self.spawn_t = 10_000
@@ -236,6 +269,8 @@ class App(BattleMixin, EvolutionMixin):
                     self.spawn_t = 10_000
                 if item.get("replace"):
                     self.cancel_evolution(item["replace"])
+                if item.get("record") is not None:
+                    self.unloaded.append(item["record"])
                 return
         num = item["num"]
         if item.get("replace"):
@@ -252,8 +287,9 @@ class App(BattleMixin, EvolutionMixin):
                              f"야생 {josa(pet.name, '이가')} 나타났다! (Lv.{pet.level})")
         if item["save"]:
             self.save()
-        if item.get("traded"):                      # 착지한 뒤 교환 진화 확인
-            self.root.after(2500, lambda: self.try_evolve(pet, traded=True))
+        if item.get("traded"):                      # 다른 PC에서 옴: 옆에서 걸어 들어옴
+            pet.arrive(self.arrivals["seen"])
+            self.arrivals["seen"] += 1
 
     # -------------------------------------------------- main loop
     def loop(self):
@@ -299,6 +335,8 @@ class App(BattleMixin, EvolutionMixin):
         save_menu.add_command(label="클라우드 폴더로 바꾸기… (학원 ↔ 집 연동)", command=self.choose_save_dir)
         if self.store.save_dir:
             save_menu.add_command(label="이 PC에만 저장하기", command=self.use_local_save)
+        save_menu.add_separator()
+        save_menu.add_command(label=f"이 PC 별명: {self.store.nickname}  (바꾸기…)", command=self.ask_nickname)
         m.add_cascade(label="저장 위치", menu=save_menu)
         m.add_command(label="종료", command=self.quit)
         m.tk_popup(x, y)

@@ -60,6 +60,14 @@ python tools/build_dex.py           # 도감 표(pokepet/data/dex.json) 다시 �
   전설은 `LEGEND_MIN_LEVEL`부터.
 - 진화: 레벨 진화는 그대로. 돌·기타는 `EVO_FALLBACK_LEVEL` 레벨에서. 친밀도 = 쓰다듬기 `FRIENDSHIP_PATS`회
   (낮 06~18시 / 밤). 교환 = 다른 PC에서 저장된 포켓몬이 이 PC에서 깨어날 때 (저장 항목 `machine`).
+  교환으로 온 포켓몬은 화면 옆에서 걸어 들어와(`Pet.arrive`) 도착하면 `on_arrived` → 교환 진화 확인.
+
+## 저장 (`storage.py`, 사용자용 안내는 docs/SYNC.md)
+
+- 저장은 2분마다(`AUTOSAVE_MS`) + 이벤트 때. 파티를 다 불러오기 전(`App.loading > 0`)에는 저장하지 않는다.
+- 불러오기에 실패한 포켓몬은 `App.unloaded`에 원래 기록을 두고 저장할 때 그대로 다시 쓴다 (데이터 유실 방지).
+- PC 별명은 `settings.json`의 `nickname`, 저장 파일 `machines`(PC 이름 → 별명)로 모든 PC가 공유.
+- 화면 코드를 python으로 고칠 때 Windows에서는 `write_text(..., newline="\n")` (아니면 CRLF가 섞임).
 
 ## 주의
 

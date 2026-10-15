@@ -92,6 +92,24 @@ class TestSaveStore(unittest.TestCase):
         academy.release()
         self.assertFalse(academy.lock_file.exists())
 
+    def test_nicknames_are_shared_through_save(self):
+        academy = make_store(self.root, "DESKTOP-34NQTUN", self.cloud)
+        academy.set_nickname("학원")
+        academy.load()
+        academy.save(PIKA)
+        home = make_store(self.root, "HOME-PC", self.cloud)
+        home.set_nickname("집")
+        home.load()
+        self.assertEqual(home.label("DESKTOP-34NQTUN"), "학원")
+        self.assertEqual(home.label("HOME-PC"), "집")
+        home.save(EEVEE)                       # 집이 저장해도 학원 별명은 남아 있어야 함
+        self.assertEqual(academy.peek()["machines"], {"DESKTOP-34NQTUN": "학원", "HOME-PC": "집"})
+
+    def test_label_without_nickname_is_machine_name(self):
+        s = make_store(self.root, "academy", self.cloud)
+        self.assertEqual(s.label("academy"), "academy")
+        self.assertEqual(s.label("UNKNOWN"), "UNKNOWN")
+
 
 if __name__ == "__main__":
     unittest.main()
