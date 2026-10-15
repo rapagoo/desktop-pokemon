@@ -89,7 +89,7 @@ def load_json(path, default):
 
 
 def gif_frame_info(data):
-    """GIF를 직접 훑어서 프레임별 (disposal, delay_ms)를 얻는다."""
+    """GIF를 직접 훑어서 프레임별 (disposal, delay_ms, (x, y, w, h))를 얻는다."""
     info = []
     try:
         pk = data[10]
@@ -109,12 +109,13 @@ def gif_frame_info(data):
                     i += data[i] + 1
                 i += 1
             elif b == 0x2C:
+                rect = struct.unpack("<HHHH", data[i:i + 8])
                 fp = data[i + 8]
                 i += 9 + (3 * 2 ** ((fp & 7) + 1) if fp & 0x80 else 0) + 1
                 while data[i]:
                     i += data[i] + 1
                 i += 1
-                info.append(gce)
+                info.append(gce + (rect,))
                 gce = (0, 100)
             else:
                 break
@@ -157,18 +158,24 @@ class Sprite:
         w, h = raw[0].width(), raw[0].height()
         scale = SCALE if max(w, h) <= BIG_SPRITE else 1
 
-        # disposal 방식에 맞게 프레임 합성
+        # disposal 방식에 맞게 프레임 합성.
+        # 2(배경으로 복원)는 캔버스 전체가 아니라 그 프레임 영역만 지워야 한다.
+        # 다음 프레임이 바뀐 부분만 담고 있으면 나머지는 이전 내용을 그대로 써야 하기 때문.
         frames, base = [], tk.PhotoImage(width=w, height=h)
         for k, img in enumerate(raw):
-            disp = info[k][0] if k < len(info) else 2
+            disp, _, (rx, ry, rw, rh) = info[k] if k < len(info) else (2, 100, (0, 0, w, h))
             comp = tk.PhotoImage(width=w, height=h)
             comp.tk.call(comp, "copy", base)
             comp.tk.call(comp, "copy", img, "-compositingrule", "overlay")
             frames.append(comp)
-            if disp == 1 or disp == 0:
-                base = comp
-            elif disp == 2:
+            if disp == 2:
                 base = tk.PhotoImage(width=w, height=h)
+                base.tk.call(base, "copy", comp)
+                if rw and rh:
+                    hole = tk.PhotoImage(width=rw, height=rh)
+                    base.tk.call(base, "copy", hole, "-to", rx, ry, "-compositingrule", "set")
+            elif disp != 3:
+                base = comp
         self.delays = [(info[k][1] if k < len(info) else 100) for k in range(len(frames))]
         self.left = [f.zoom(scale) for f in frames]                 # 원본은 왼쪽을 봄
         self.right = [f.subsample(-1, 1).zoom(scale) for f in frames]
