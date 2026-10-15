@@ -50,14 +50,14 @@ python tools/build_dex.py           # 도감 표(pokepet/data/dex.json) 다시 �
   프레임은 `LazyFrames`로 보여 줄 때 한 장씩 만든다 (+ `App.warm_up`이 0.2초마다 한 장씩 미리).
   큰 시트를 화면 프로세스에서 읽으면 0.4초씩 멈추므로 메인 스레드에서 시트를 통째로 읽지 말 것.
   meta 형식을 바꾸면 `sprites.META_VERSION`을 올린다.
-- 스프라이트 하나가 메모리 6~7MB. `App.sprites`는 화면의 포켓몬 + 최근 `SPRITE_SPARE`개만 남긴다 (`prune_sprites`).
+- 스프라이트 하나가 메모리 6\~7MB. `App.sprites`는 화면의 포켓몬 + 최근 `SPRITE_SPARE`개만 남긴다 (`prune_sprites`).
 - 30ms마다 도는 코드는 바뀐 게 있을 때만 Tk를 건드린다 (`Pet.place`, 프레임 이미지, 관리 창 `set_text`).
 - config 값은 각 모듈이 import 시점에 가져간다. 실행 중에 바꾸려면 다른 모듈 import 전에 바꿔야 한다 (`__main__.py` 참고).
 - Tk 객체는 메인 스레드에서만 만든다. 다운로드는 스레드에서 하고 `App.loaded` 큐로 넘긴다.
 
 ## 스프라이트 규칙 (포켓몬마다 손으로 고치지 말고 데이터에서 규칙을 찾는다)
 
-- 기본은 PMDCollab SpriteCollab (CC BY-NC 4.0). 도감 범위는 #1~493 (전원 핵심 모션 보유).
+- 기본은 PMDCollab SpriteCollab (CC BY-NC 4.0). 도감 범위는 #1\~493 (전원 핵심 모션 보유).
 - 시트 행 = 8방향, 프레임은 셀 중심 정렬. `PMD_WANTED`에 상태별 후보 애니메이션과 대체 순서가 있다.
 - 바닥선은 걷기 모션의 발끝. 그보다 내려가는 모션은 `lift`만큼 올려 그린다.
 - 이동 속도 = 몸 길이 × `STRIDE` ÷ 걷기 사이클. `SPEED_RANGE`로 자르고 애니메이션 속도를 같이 맞춘다.
@@ -70,7 +70,7 @@ python tools/build_dex.py           # 도감 표(pokepet/data/dex.json) 다시 �
   진화형은 진화 레벨부터, 진화 레벨 + `WILD_OVERLEVEL`이 지나면 진화 전 모습은 안 나옴. 아기 포켓몬은 야생에 없음.
   전설은 `LEGEND_MIN_LEVEL`부터.
 - 진화: 레벨 진화는 그대로. 돌·기타는 `EVO_FALLBACK_LEVEL` 레벨에서. 친밀도 = 쓰다듬기 `FRIENDSHIP_PATS`회
-  (낮 06~18시 / 밤). 교환 = 다른 PC에서 저장된 포켓몬이 이 PC에서 깨어날 때 (저장 항목 `machine`).
+  (낮 06\~18시 / 밤). 교환 = 다른 PC에서 저장된 포켓몬이 이 PC에서 깨어날 때 (저장 항목 `machine`).
   교환으로 온 포켓몬은 화면 옆에서 걸어 들어와(`Pet.arrive`) 도착하면 `on_arrived` → 교환 진화 확인.
 
 ## 저장 (`storage.py`, 사용자용 안내는 docs/SYNC.md)
