@@ -112,7 +112,10 @@ class Pet:
         return self.app.area[3] - self.ch + self.sp.pad_bottom
 
     def place(self):
-        self.win.geometry(f"{self.cw}x{self.ch}+{int(self.x)}+{int(self.y)}")
+        geom = f"{self.cw}x{self.ch}+{int(self.x)}+{int(self.y)}"
+        if geom != getattr(self, "_geom", None):    # 안 움직였으면 창 위치를 다시 정하지 않음 (CPU 절약)
+            self._geom = geom
+            self.win.geometry(geom)
 
     # -------------------------------------------------- speech bubble & HP bar
     def say(self, text, ms=1800):
@@ -337,7 +340,9 @@ class Pet:
                 else:
                     self.frame = 0
         frames = anim.right if self.facing > 0 else anim.left
-        self.cv.itemconfig(self.img_id, image=frames[self.frame])
+        if frames[self.frame] is not getattr(self, "_shown", None):   # 프레임이 바뀔 때만 다시 그림
+            self._shown = frames[self.frame]
+            self.cv.itemconfig(self.img_id, image=self._shown)
         off = self.sp.lift.get(name, 0)
         if self.sp.static:
             self.bob_t += dt

@@ -25,6 +25,17 @@ TYPE_KO = {
 DEX_COLS, DEX_CELL = 16, 28
 
 
+def set_text(widget, text):
+    """글자가 바뀔 때만 다시 설정 (1초마다 새로 그릴 때 불필요한 화면 갱신 줄이기)."""
+    if widget.cget("text") != text:
+        widget.config(text=text)
+
+
+def set_tab(tabs, page, text):
+    if tabs.tab(page, "text") != text:
+        tabs.tab(page, text=text)
+
+
 def types_ko(types):
     return "/".join(TYPE_KO.get(t, t) for t in types)
 
@@ -94,9 +105,9 @@ class Manager:
         a = self.app
         saved = time.strftime("%H:%M", time.localtime(a.store.loaded_at)) if a.store.loaded_at else "아직 안 함"
         where = "클라우드 연동" if a.store.save_dir else "이 PC에만 저장"
-        self.status.config(text=f"{a.store.nickname} · {where} · 마지막 저장 {saved}")
-        self.tabs.tab(self.pages["box"], text=f"보관함 {len(a.box)}")
-        self.tabs.tab(self.pages["dex"], text=f"도감 {len(a.caught & set(dex.DATA))}/{MAX_NUM}")
+        set_text(self.status, f"{a.store.nickname} · {where} · 마지막 저장 {saved}")
+        set_tab(self.tabs, self.pages["box"], f"보관함 {len(a.box)}")
+        set_tab(self.tabs, self.pages["dex"], f"도감 {len(a.caught & set(dex.DATA))}/{MAX_NUM}")
         getattr(self, f"refresh_{self.current()}")()
 
     def tick(self):
@@ -157,18 +168,20 @@ class Manager:
     def update_row(self, p, row):
         state = {"sleep": " · 자는 중", "battle": " · 배틀 중", "fainted": " · 쓰러져 쉬는 중",
                  "evolving": " · 진화 중!"}.get(p.state, "")
-        row["title"].config(text=f"{'✨' if p.shiny else ''}{p.name}  Lv.{p.level}{state}")
-        row["sub"].config(text=f"{types_ko(p.dex['types'])} · 친밀도 {p.friendship}")
+        set_text(row["title"], f"{'✨' if p.shiny else ''}{p.name}  Lv.{p.level}{state}")
+        set_text(row["sub"], f"{types_ko(p.dex['types'])} · 친밀도 {p.friendship}")
         hint = dex.evolution_hint(p.num, p.friendship)
-        row["hint"].config(text=f"다음 진화 → {hint}" if hint else "더 진화하지 않아요")
+        set_text(row["hint"], f"다음 진화 → {hint}" if hint else "더 진화하지 않아요")
         lo, hi = exp_for(p.level), exp_for(p.level + 1)
         exp_pct = int(100 * (p.exp - lo) / max(1, hi - lo))
         ratio = max(0.0, p.hp / p.max_hp)
         color = "#3cb043" if ratio > .5 else "#f1c232" if ratio > .2 else "#e06666"
-        bar = row["bar"]
-        bar.delete("all")
-        bar.create_rectangle(0, 0, int(110 * ratio), 8, fill=color, outline="")
-        row["nums"].config(text=f"HP {int(p.hp)}/{p.max_hp} · EXP {exp_pct}%")
+        if row.get("ratio") != round(ratio, 2):           # HP가 바뀔 때만 막대를 다시 그림
+            row["ratio"] = round(ratio, 2)
+            bar = row["bar"]
+            bar.delete("all")
+            bar.create_rectangle(0, 0, int(110 * ratio), 8, fill=color, outline="")
+        set_text(row["nums"], f"HP {int(p.hp)}/{p.max_hp} · EXP {exp_pct}%")
 
     # -------------------------------------------------- 보관함
     def build_box(self, f):

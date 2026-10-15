@@ -16,7 +16,7 @@ MONITORINFOF_PRIMARY = 1
 SHELL_CLASSES = {"Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd"}
 
 try:
-    user32 = ctypes.windll.user32
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
 except AttributeError:             # Windows가 아님
     user32 = None
 
@@ -102,3 +102,53 @@ def start_hotkey(hotkey):
 
     threading.Thread(target=run, daemon=True).start()
     return events
+
+
+# ---------------------------------------------------------------- 두 번 실행 방지
+ERROR_ALREADY_EXISTS = 183
+EVENT_MODIFY_STATE = 0x0002
+INFINITE = 0xFFFFFFFF
+_instance_handles = []                 # 프로세스가 살아 있는 동안 핸들을 잡고 있어야 함
+
+if user32:
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.CreateMutexW.restype = wintypes.HANDLE
+    k32.CreateMutexW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR]
+    k32.CreateEventW.restype = wintypes.HANDLE
+    k32.CreateEventW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.BOOL, wintypes.LPCWSTR]
+    k32.OpenEventW.restype = wintypes.HANDLE
+    k32.OpenEventW.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.LPCWSTR]
+    k32.SetEvent.argtypes = [wintypes.HANDLE]
+    k32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+
+
+def claim_single_instance(name):
+    """이 PC에서 처음 실행된 것이면 True. 이미 실행 중이면 False."""
+    if not user32:
+        return True
+    handle = k32.CreateMutexW(None, False, "Local\\" + name)
+    already = ctypes.get_last_error() == ERROR_ALREADY_EXISTS
+    _instance_handles.append(handle)
+    return not already
+
+
+def wake_existing(name):
+    """이미 실행 중인 쪽에 '관리 창을 열어 줘' 신호를 보낸다."""
+    if not user32:
+        return False
+    ev = k32.OpenEventW(EVENT_MODIFY_STATE, False, "Local\\" + name + "-show")
+    return bool(ev and k32.SetEvent(ev))
+
+
+def listen_wake(name, events):
+    """다른 실행에서 wake_existing 신호가 오면 events 큐에 넣는다 (관리 창 열기)."""
+    if not user32:
+        return
+    ev = k32.CreateEventW(None, False, False, "Local\\" + name + "-show")
+    _instance_handles.append(ev)
+
+    def run():
+        while k32.WaitForSingleObject(ev, INFINITE) == 0:
+            events.put(True)
+
+    threading.Thread(target=run, daemon=True).start()

@@ -42,6 +42,11 @@ python tools/build_dex.py           # 도감 표(pokepet/data/dex.json) 다시 �
 | `manager.py` | 관리 창 (파티·보관함·도감·기록·설정 탭). 열려 있는 동안 1초마다 지금 탭만 새로 그림 |
 | `app.py` | `App(BattleMixin, EvolutionMixin)`: 불러오기, 메인 루프(30ms), 메뉴, 숨기기(이유별 `set_hidden`), 저장, 보관함, 도감·기록(`seen`/`caught`/`events`) |
 
+- 한 PC에 하나만 실행 (`screen.claim_single_instance`, 이름 `DesktopPokemon` / `--debug`는 `DesktopPokemon-debug`).
+  두 번째로 실행하면 켜져 있는 쪽 관리 창을 열고 끝난다. 테스트로 띄운 인스턴스는 꼭 `timeout`을 걸 것
+  (안 끝난 debug 인스턴스가 남으면 다음 테스트가 "이미 실행 중"으로 끝나 버림).
+- 스프라이트 하나가 메모리 6~7MB. `App.sprites`는 화면의 포켓몬 + 최근 `SPRITE_SPARE`개만 남긴다 (`prune_sprites`).
+- 30ms마다 도는 코드는 바뀐 게 있을 때만 Tk를 건드린다 (`Pet.place`, 프레임 이미지, 관리 창 `set_text`).
 - config 값은 각 모듈이 import 시점에 가져간다. 실행 중에 바꾸려면 다른 모듈 import 전에 바꿔야 한다 (`__main__.py` 참고).
 - Tk 객체는 메인 스레드에서만 만든다. 다운로드는 스레드에서 하고 `App.loaded` 큐로 넘긴다.
 

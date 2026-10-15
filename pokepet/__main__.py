@@ -18,8 +18,16 @@ def main(argv=None):
     if args.capturable:
         config.CAPTURE_GUARD = False
 
+    # 이미 켜져 있으면 두 번째로 띄우지 않고, 켜져 있는 쪽의 관리 창을 연다
+    from . import screen
+    instance = "DesktopPokemon" + ("-debug" if args.debug else "")
+    if not screen.claim_single_instance(instance):
+        screen.wake_existing(instance)
+        print("이미 실행 중이에요. 켜져 있는 쪽의 관리 창을 열었어요.")
+        return
+
     from .app import App
-    App(debug=args.debug).run()
+    App(debug=args.debug, instance=instance).run()
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@
 import ctypes
 import json
 import queue
+from collections import OrderedDict
 import random
 import shutil
 import sys
@@ -28,6 +29,7 @@ from .config import (
     SHINY_CHANCE,
     SPECIES_URL,
     SPRITE_DIR,
+    SPRITE_SPARE,
     START_LEVEL,
     TICK,
 )
@@ -43,7 +45,7 @@ from .pet import Pet
 
 
 class App(BattleMixin, EvolutionMixin):
-    def __init__(self, debug=False):
+    def __init__(self, debug=False, instance=None):
         self.debug = debug
         if debug:
             sys.stdout.reconfigure(encoding="utf-8")
@@ -59,7 +61,7 @@ class App(BattleMixin, EvolutionMixin):
         SPRITE_DIR.mkdir(exist_ok=True)
         self.names = load_json(NAMES_FILE, {})
         self.pets = []
-        self.sprites = {}
+        self.sprites = OrderedDict()  # 스프라이트 캐시 (최근에 쓴 것이 뒤). prune_sprites 로 정리
         self.portraits = {}
         self.loaded = queue.Queue()
         self.hide_reasons = set()     # 비어 있지 않으면 숨긴 상태 (hidden 속성)
@@ -91,7 +93,9 @@ class App(BattleMixin, EvolutionMixin):
 
         self.menu = tk.Menu(self.root, tearoff=0, font=("맑은 고딕", 9))
         self.manager = None               # 관리 창 (처음 열 때 만듦)
-        self.hotkeys = screen.start_hotkey(HOTKEY)
+        self.hotkeys = screen.start_hotkey(HOTKEY)   # Ctrl+Alt+P 또는 두 번째 실행 → 관리 창
+        if instance:
+            screen.listen_wake(instance, self.hotkeys)
         self.auto_hide = self.store.get_setting("auto_hide", AUTO_HIDE_FULLSCREEN)
         self.root.after(TICK, self.loop)
         self.root.after(FULLSCREEN_CHECK_MS, self.check_fullscreen)
@@ -255,6 +259,17 @@ class App(BattleMixin, EvolutionMixin):
             print(f"#{num} 불러오기 실패: {ex}", file=sys.stderr)
             self.loaded.put({"failed": True, "wild": wild, **extra})
 
+    def prune_sprites(self):
+        """화면에 없는 포켓몬의 스프라이트는 최근 몇 개만 남기고 버린다.
+
+        스프라이트 하나가 6~7MB라서, 야생 포켓몬을 계속 캐시하면 하루에 1GB 가까이 쌓인다.
+        파일 캐시(sprites/)는 그대로라 다시 나오면 디스크에서 금방 다시 읽는다.
+        """
+        in_use = {id(p.sp) for p in self.pets}
+        spare = [k for k, s in self.sprites.items() if id(s) not in in_use]   # 오래된 것부터
+        for key in spare[:max(0, len(spare) - SPRITE_SPARE)]:
+            del self.sprites[key]
+
     def portrait(self, num, emotion, zoom=2):
         """표정 초상화 (원본 40px, zoom배). 없으면 Normal, 그것도 없으면 None."""
         for emo in (emotion, "Normal"):
@@ -301,15 +316,18 @@ class App(BattleMixin, EvolutionMixin):
                 if item.get("record") is not None:
                     self.unloaded.append(item["record"])
                 return
+        self.sprites.move_to_end(key)
         num = item["num"]
         if item.get("replace"):
             self.finish_evolution(item["replace"], item)
+            self.prune_sprites()
             return
         pet = Pet(self, num, item["shiny"], self.sprites[key], poke_name(num, self.names),
                   item["dex"], wild=item["wild"], **item["stats"])
         if self.hidden:
             pet.win.withdraw()
         self.pets.append(pet)
+        self.prune_sprites()
         if not item["wild"]:               # 야생은 실제로 화면에 들어왔을 때 '만남' (battle.py)
             self.mark_caught(num)
         self.refresh_manager()
@@ -327,8 +345,9 @@ class App(BattleMixin, EvolutionMixin):
     def loop(self):
         while not self.loaded.empty():
             self._spawn(self.loaded.get())
-        while not self.hotkeys.empty():               # Ctrl+Alt+P
+        while not self.hotkeys.empty():               # Ctrl+Alt+P 또는 두 번째 실행
             self.hotkeys.get()
+            self.log("관리 창 열기 (단축키 또는 다시 실행)")
             self.open_manager()
         if not self.hidden:
             for p in list(self.pets):
