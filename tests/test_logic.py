@@ -2,7 +2,7 @@
 import struct
 import unittest
 
-from pokepet.battle import calc_damage, type_effect
+from pokepet.battle import calc_damage, pick_target, type_effect
 from pokepet.sprites import parse_anim_data
 from pokepet.util import calc_stat, exp_for, gif_frame_info, josa, josa_ro
 
@@ -83,6 +83,28 @@ class TestDamage(unittest.TestCase):
         dmg, _ = calc_damage(mon, FakeMon(["fire"], level=5), NO_RANDOM)
         hp = calc_stat(50, 5, is_hp=True)
         self.assertTrue(3 <= -(-hp // dmg) <= 5, f"hp {hp}, dmg {dmg}")
+
+
+class TestTarget(unittest.TestCase):
+    def share(self, levels, n=4000):
+        import random
+        rng = random.Random(1)
+        pets = [FakeMon(["normal"], level=lv) for lv in levels]
+        hits = [0] * len(pets)
+        for _ in range(n):
+            hits[pets.index(pick_target(pets, rng))] += 1
+        return [h / n for h in hits]
+
+    def test_low_level_fights_more(self):
+        low, high = self.share([10, 30])
+        self.assertAlmostEqual(low, 0.9, delta=0.03)
+
+    def test_close_levels_nearly_even(self):
+        a, b = self.share([10, 12])
+        self.assertAlmostEqual(a, 0.59, delta=0.04)
+
+    def test_everyone_still_gets_picked(self):
+        self.assertTrue(all(s > 0.01 for s in self.share([5, 20, 40])))
 
 
 def tiny_gif(disposal, delay_cs, rect):

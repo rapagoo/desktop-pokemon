@@ -66,7 +66,7 @@ python tools/build_dex.py           # 도감 표(pokepet/data/dex.json) 다시 �
 
 ## 진화·야생 규칙 (`dex.py`, 수치는 `config.py`)
 
-- 야생: 상대할 내 포켓몬을 먼저 고르고 그 레벨 ±2로 등장. 그 레벨에 나올 수 있는 종류만, 포획률^0.7 가중치.
+- 야생: 상대할 내 포켓몬을 먼저 고르고(레벨 낮을수록 자주, `TARGET_LOW_BIAS`) 그 레벨 ±2로 등장. 그 레벨에 나올 수 있는 종류만, 포획률^0.7 가중치.
   진화형은 진화 레벨부터, 진화 레벨 + `WILD_OVERLEVEL`이 지나면 진화 전 모습은 안 나옴. 아기 포켓몬은 야생에 없음.
   전설은 `LEGEND_MIN_LEVEL`부터.
 - 진화: 레벨 진화는 그대로. 돌·기타는 `EVO_FALLBACK_LEVEL` 레벨에서. 친밀도 = 쓰다듬기 `FRIENDSHIP_PATS`회

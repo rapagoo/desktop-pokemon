@@ -7,6 +7,7 @@ from .config import (
     MAX_PARTY,
     MOVE_POWER,
     SPAWN_MS,
+    TARGET_LOW_BIAS,
     TYPE_CHART,
 )
 from . import dex
@@ -19,6 +20,14 @@ def type_effect(move_type, defender_types):
     for t in defender_types:
         eff *= TYPE_CHART.get(move_type, {}).get(t, 1.0)
     return eff
+
+
+def pick_target(pets, rng=random):
+    """야생 포켓몬이 상대할 내 포켓몬. 레벨이 낮을수록 자주 (가중치 1/레벨^TARGET_LOW_BIAS).
+
+    Lv.10과 Lv.30이면 Lv.10이 약 90%, Lv.10과 Lv.12면 약 59% → 파티 레벨이 비슷해지고 진화도 고르게.
+    """
+    return rng.choices(pets, weights=[p.level ** -TARGET_LOW_BIAS for p in pets])[0]
 
 
 def calc_damage(att, dfn, rand=random.uniform):
@@ -45,7 +54,7 @@ class BattleMixin:
         """상대할 내 포켓몬을 먼저 정하고, 그 레벨에 맞는 야생 포켓몬을 부른다."""
         party = self.party()
         rested = [p for p in party if p.state != "fainted" and p.hp >= p.max_hp * .4]
-        self.wild_target = random.choice(rested or party)
+        self.wild_target = pick_target(rested or party)
         level = max(2, self.wild_target.level + random.randint(-2, 1))
         self.spawning = True
         self.request(dex.pick_wild(level), save=False, wild=True,

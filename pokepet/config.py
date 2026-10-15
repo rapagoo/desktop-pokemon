@@ -66,6 +66,7 @@ START_LEVEL = 5
 MAX_PARTY = 6
 SPAWN_MS = (60_000, 120_000)     # 야생 포켓몬 등장 간격
 FIRST_SPAWN_MS = (15_000, 25_000)
+TARGET_LOW_BIAS = 2               # 야생이 상대할 내 포켓몬: 레벨 낮을수록 자주 (0이면 완전 무작위)
 MOVE_POWER = 35                  # 보통 3~4방, 약점이면 2방 정도
 FAINT_REST_MS = 45_000           # 쓰러진 뒤 쉬는 시간
 DAZED_MS = 9_000                 # 쓰러진 야생 포켓몬을 잡을 수 있는 시간
