@@ -15,7 +15,7 @@ FONT = ("맑은 고딕", 10)
 FONT_B = ("맑은 고딕", 10, "bold")
 FONT_S = ("맑은 고딕", 9)
 MUTED = "#6b6b6b"
-STATUS_COLORS = {"caught": "#c9e7b5", "seen": "#cfe2f6", "unknown": "#f0efea"}
+STATUS_COLORS = {"caught": "#8fd16a", "seen": "#8dbdf0", "unknown": "#f4f3ef"}   # 만남과 모름이 확실히 구분되게
 TYPE_KO = {
     "normal": "노말", "fire": "불꽃", "water": "물", "electric": "전기", "grass": "풀", "ice": "얼음",
     "fighting": "격투", "poison": "독", "ground": "땅", "flying": "비행", "psychic": "에스퍼",
@@ -270,7 +270,7 @@ class Manager:
         a = self.app
         caught, seen = len(a.caught & set(dex.DATA)), len((a.seen | a.caught) & set(dex.DATA))
         self.dex_head.config(text=f"잡음 {caught} · 만남 {seen} · 전체 {MAX_NUM}  (칸을 누르면 정보)")
-        key = (len(a.caught), len(a.seen))
+        key = (frozenset(a.caught), frozenset(a.seen))   # 수가 같아도 내용이 바뀌면(다른 PC 기록 불러오기) 다시 칠함
         if key != self.dex_key:
             self.dex_key = key
             for n, rect in self.dex_cells.items():

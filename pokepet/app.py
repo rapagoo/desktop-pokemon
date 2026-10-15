@@ -310,9 +310,8 @@ class App(BattleMixin, EvolutionMixin):
         if self.hidden:
             pet.win.withdraw()
         self.pets.append(pet)
-        self.seen.add(num)
-        if not item["wild"]:
-            self.caught.add(num)
+        if not item["wild"]:               # 야생은 실제로 화면에 들어왔을 때 '만남' (battle.py)
+            self.mark_caught(num)
         self.refresh_manager()
         if item["wild"]:
             self.wild, self.spawning = pet, False

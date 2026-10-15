@@ -81,9 +81,15 @@ class BattleMixin:
             return
 
         if w.state == "approach":
+            l, t, r, b = self.area
+            if w.num not in self.seen and not self.hidden and w.x < r and w.x + w.cw > l:
+                self.seen.add(w.num)            # 화면 안으로 걸어 들어온 순간 도감에 '만남'
+                self.refresh_manager()
             targets = [p for p in self.party() if p.state in ("walk", "idle", "sleep")]
-            if not targets:                     # 싸울 상대가 없으면 돌아감
-                if not any(p.state in ("fall", "drag", "battle") for p in self.party()):
+            if not targets:
+                # 잠깐 바쁜 포켓몬(던져짐·배틀·도착 중·진화 중)이 있으면 기다리고, 다 쓰러졌으면 돌아감
+                busy = ("fall", "drag", "battle", "arrive", "evolving")
+                if not any(p.state in busy for p in self.party()):
                     w.leave()
                 return
             healthy = [p for p in targets if p.hp >= p.max_hp * .4]   # 지친 포켓몬은 되도록 쉬게
