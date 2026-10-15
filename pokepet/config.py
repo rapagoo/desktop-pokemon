@@ -70,6 +70,12 @@ FAINT_REST_MS = 45_000           # 쓰러진 뒤 쉬는 시간
 DAZED_MS = 9_000                 # 쓰러진 야생 포켓몬을 잡을 수 있는 시간
 REGEN_FULL_MS = 90_000           # 평소 HP가 0에서 가득 차는 시간 (잘 때는 3배 빠름)
 
+# 진화·야생 등장 (dex.py)
+EVO_FALLBACK_LEVEL = {"stone": 30, "friendship": 22, "trade": 36, "other": 32}  # 레벨 진화가 아닐 때
+FRIENDSHIP_PATS = 30             # 친밀도 진화에 필요한 쓰다듬기 횟수
+LEGEND_MIN_LEVEL = 40            # 전설·환상 포켓몬이 야생에 나오기 시작하는 레벨
+WILD_OVERLEVEL = 8               # 진화 레벨을 이만큼 넘으면 진화 전 모습으로는 안 나옴
+
 # 수업 환경
 CAPTURE_GUARD = True             # 화면 공유·녹화·스크린샷에 포켓몬이 안 찍히게 (내 화면엔 보임)
 AUTO_HIDE_FULLSCREEN = True      # 영상·발표 같은 전체 화면 앱이 앞에 오면 자동으로 숨기기
