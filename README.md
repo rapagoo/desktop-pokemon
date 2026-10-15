@@ -22,7 +22,9 @@ python desktop_pokemon.py
 
 스프라이트 이미지는 이 저장소에 포함되어 있지 않습니다. 처음 실행할 때
 [PokeAPI/sprites](https://github.com/PokeAPI/sprites)에서 받아 `sprites/` 폴더에 캐시합니다.
-1~649번은 5세대 도트 애니메이션, 650~1025번은 Showdown 애니메이션(없으면 정지 이미지)을 사용합니다.
+모두 5세대(BW) 도트 스타일입니다. 1~649번은 공식 BW 애니메이션, 650번 이후는
+[Smogon](https://www.smogon.com/) 팬메이드 BW 스타일 스프라이트(애니메이션이 없으면 정지 이미지 + 통통 튀는 효과)를
+[Pokémon Showdown](https://play.pokemonshowdown.com/sprites/)에서 받아옵니다.
 
 ## Disclaimer
 

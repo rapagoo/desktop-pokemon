@@ -26,12 +26,16 @@ SPRITE_DIR = BASE / "sprites"
 PARTY_FILE = BASE / "party.json"
 NAMES_FILE = BASE / "names.json"
 
-SPRITE_ROOT = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/"
-# 우선순위: 5세대 BW 도트 애니(1~649) → Showdown 애니 → 정지 이미지
+POKEAPI_ROOT = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/"
+SHOWDOWN_ROOT = "https://play.pokemonshowdown.com/sprites/"
+# 모두 5세대 도트 스타일. 우선순위대로 시도 (태그, URL 템플릿, 최대 번호)
+#  - bw : 공식 BW 애니메이션 (1~649)
+#  - g5a: Smogon 팬메이드 BW 스타일 애니메이션
+#  - g5 : Smogon 팬메이드 BW 스타일 정지 이미지 (코드로 통통 움직임)
 SPRITE_SOURCES = [
-    ("versions/generation-v/black-white/animated/{shiny}{num}.gif", 649),
-    ("other/showdown/{shiny}{num}.gif", None),
-    ("{shiny}{num}.png", None),
+    ("bw", POKEAPI_ROOT + "versions/generation-v/black-white/animated/{shiny}{num}.gif", 649),
+    ("g5a", SHOWDOWN_ROOT + "gen5ani{shiny_sfx}/{sd}.gif", None),
+    ("g5", SHOWDOWN_ROOT + "gen5{shiny_sfx}/{sd}.png", None),
 ]
 SPECIES_URL = "https://pokeapi.co/api/v2/pokemon-species/{num}/"
 MAX_NUM = 1025           # 전체 도감
@@ -169,6 +173,7 @@ class Sprite:
         self.left = [f.zoom(scale) for f in frames]                 # 원본은 왼쪽을 봄
         self.right = [f.subsample(-1, 1).zoom(scale) for f in frames]
         self.w, self.h = w * scale, h * scale
+        self.static = len(frames) == 1
         self.pad_bottom = self._bottom_padding(frames[0]) * scale
 
     @staticmethod
@@ -222,7 +227,7 @@ class Pet:
         self.y = t - self.ch          # 화면 위에서 떨어지며 등장
         self.vx = self.vy = 0.0
         self.facing = random.choice((-1, 1))
-        self.frame, self.frame_t = 0, 0
+        self.frame, self.frame_t, self.bob_t = 0, 0, 0
         self.state, self.state_t = "fall", 0
         self.drag = None
         self.pets = 0
@@ -334,6 +339,15 @@ class Pet:
                 self.frame = (self.frame + 1) % len(self.sp.left)
         frames = self.sp.right if self.facing > 0 else self.sp.left
         self.cv.itemconfig(self.img_id, image=frames[self.frame])
+        if self.sp.static:
+            self.bob_t += dt
+            if self.state == "walk":            # 걸을 땐 통통 튀기
+                off = abs(math.sin(self.bob_t / 110)) * 7
+            elif self.state in ("idle", "drag"):  # 가만히 있을 땐 숨쉬기
+                off = 2 if (self.bob_t // 550) % 2 else 0
+            else:
+                off = 0
+            self.cv.coords(self.img_id, self.cw // 2, self.ch - int(off))
 
         if self.bubble_ids:
             self.bubble_ttl -= dt
@@ -449,20 +463,25 @@ class App:
     @staticmethod
     def _download_sprite(num, shiny):
         stem = f"{'s' if shiny else ''}{num}"
-        for ext in (".gif", ".png"):
-            if (SPRITE_DIR / f"{stem}{ext}").exists():
-                return SPRITE_DIR / f"{stem}{ext}"
+        for tag, tmpl, _ in SPRITE_SOURCES:
+            cached = SPRITE_DIR / f"{stem}-{tag}{Path(tmpl).suffix}"
+            if cached.exists():
+                return cached
+        sd = None                    # Showdown 스프라이트 이름 (예: iron-treads -> irontreads)
         last = None
-        for tmpl, max_num in SPRITE_SOURCES:
+        for tag, tmpl, max_num in SPRITE_SOURCES:
             if max_num and num > max_num:
                 continue
-            url = SPRITE_ROOT + tmpl.format(num=num, shiny="shiny/" if shiny else "")
+            if "{sd}" in tmpl and sd is None:
+                sd = json.loads(http_get(SPECIES_URL.format(num=num)))["name"].replace("-", "")
+            url = tmpl.format(num=num, sd=sd, shiny="shiny/" if shiny else "",
+                              shiny_sfx="-shiny" if shiny else "")
             try:
                 data = http_get(url)
             except Exception as ex:
                 last = ex
                 continue
-            path = SPRITE_DIR / (stem + Path(tmpl).suffix)
+            path = SPRITE_DIR / f"{stem}-{tag}{Path(tmpl).suffix}"
             path.write_bytes(data)
             return path
         raise last or RuntimeError("스프라이트 없음")
