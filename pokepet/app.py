@@ -354,7 +354,21 @@ class App(BattleMixin, EvolutionMixin):
                 p.tick(TICK)
             self.meet()
             self.battle_tick(TICK)
+        self.warm_up()
         self.root.after(TICK, self.loop)
+
+    def warm_up(self):
+        """배틀·기절 모션 프레임을 미리 조금씩 만든다 (0.2초마다 한 묶음, 한 번에 40ms 안쪽).
+
+        한꺼번에 만들면 배틀이 시작될 때 화면이 잠깐 멈추기 때문.
+        """
+        self.warm_t = getattr(self, "warm_t", 0) + TICK
+        if self.warm_t < 200:
+            return
+        self.warm_t = 0
+        for sp in {id(p.sp): p.sp for p in self.pets}.values():
+            if sp.warm_step():
+                return
 
     def meet(self):
         """걷다가 서로 마주치면 인사."""

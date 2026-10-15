@@ -45,6 +45,11 @@ python tools/build_dex.py           # 도감 표(pokepet/data/dex.json) 다시 �
 - 한 PC에 하나만 실행 (`screen.claim_single_instance`, 이름 `DesktopPokemon` / `--debug`는 `DesktopPokemon-debug`).
   두 번째로 실행하면 켜져 있는 쪽 관리 창을 열고 끝난다. 테스트로 띄운 인스턴스는 꼭 `timeout`을 걸 것
   (안 끝난 debug 인스턴스가 남으면 다음 테스트가 "이미 실행 중"으로 끝나 버림).
+- PMD 스프라이트 준비 (`assets.prepare_pmd` → 별도 프로세스 `python -m pokepet.prep`): 몸 경계 `meta.json`
+  (Tk 없이 PNG 알파만 읽어 계산)과 실제 쓰는 프레임만 잘라 낸 `strip-*.png`. 화면 프로세스는 스트립만 읽고
+  프레임은 `LazyFrames`로 보여 줄 때 한 장씩 만든다 (+ `App.warm_up`이 0.2초마다 한 장씩 미리).
+  큰 시트를 화면 프로세스에서 읽으면 0.4초씩 멈추므로 메인 스레드에서 시트를 통째로 읽지 말 것.
+  meta 형식을 바꾸면 `sprites.META_VERSION`을 올린다.
 - 스프라이트 하나가 메모리 6~7MB. `App.sprites`는 화면의 포켓몬 + 최근 `SPRITE_SPARE`개만 남긴다 (`prune_sprites`).
 - 30ms마다 도는 코드는 바뀐 게 있을 때만 Tk를 건드린다 (`Pet.place`, 프레임 이미지, 관리 창 `set_text`).
 - config 값은 각 모듈이 import 시점에 가져간다. 실행 중에 바꾸려면 다른 모듈 import 전에 바꿔야 한다 (`__main__.py` 참고).

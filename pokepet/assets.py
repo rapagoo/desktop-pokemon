@@ -1,8 +1,11 @@
 """다운로드와 캐시: PMD 스프라이트, 5세대 GIF, 초상화, 도감 데이터 (모두 sprites/ 폴더)."""
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 from .config import (
+    BASE,
     DEFAULT_DEX,
     EMOTIONS,
     PMD_ROOT,
@@ -15,7 +18,7 @@ from .config import (
 )
 from . import dex
 from .util import http_get, load_json
-from .sprites import parse_anim_data
+from .sprites import META_VERSION, ensure_meta, parse_anim_data
 
 
 def download_dex(num):
@@ -49,10 +52,27 @@ def download_portraits(num):
         except Exception:
             miss.write_text("")
 
+def prepare_pmd(folder):
+    """몸 경계(meta.json)와 스트립 PNG를 별도 프로세스에서 만든다 (pokepet/prep.py).
+
+    같은 프로세스에서 큰 시트를 읽으면 그동안 애니메이션이 멈추기 때문. 실패하면 경계만 여기서 계산.
+    """
+    meta = load_json(folder / "meta.json", None)
+    if meta and meta.get("version") == META_VERSION and meta.get("strips"):
+        return
+    try:
+        subprocess.run([sys.executable, "-m", "pokepet.prep", str(folder)], cwd=str(BASE),
+                       timeout=120, capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except (OSError, subprocess.SubprocessError):
+        pass
+    ensure_meta(folder)
+
+
 def download_pmd(num, shiny):
     """PMD 스프라이트 폴더를 받아 sprites/pmd-<번호>/ 에 저장. 없으면 None."""
     folder = SPRITE_DIR / f"pmd-{'s' if shiny else ''}{num}"
     if (folder / f"ready-{PMD_VERSION}").exists():
+        prepare_pmd(folder)              # 몸 경계·스트립은 여기서 미리 (다른 프로세스) → 화면이 멈추지 않게
         return folder
     base = f"{PMD_ROOT}{num:04d}/{'0000/0001/' if shiny else ''}"
     try:
@@ -68,7 +88,9 @@ def download_pmd(num, shiny):
     for name, data in sheets.items():
         (folder / f"{name}-Anim.png").write_bytes(data)
     (folder / f"ready-{PMD_VERSION}").write_text("ok")
+    prepare_pmd(folder)
     return folder
+
 
 def download_sprite(num, shiny):
     stem = f"{'s' if shiny else ''}{num}"
