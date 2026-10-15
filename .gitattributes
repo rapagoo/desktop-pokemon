@@ -1,0 +1,5 @@
+# 저장소에는 LF로 저장 (커밋할 때마다 나오던 줄바꿈 경고 방지). 배치 파일은 Windows용이라 CRLF.
+* text=auto eol=lf
+*.bat text eol=crlf
+*.png binary
+*.gif binary

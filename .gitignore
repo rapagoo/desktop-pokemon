@@ -1,8 +1,9 @@
-# 스프라이트는 Nintendo/Game Freak 저작물이므로 저장소에 올리지 않음 (실행 시 PokeAPI에서 받아옴)
+# 스프라이트는 Nintendo/Game Freak 저작물이므로 저장소에 올리지 않음 (실행 시 받아옴)
 sprites/
 
 # 개인 상태 / 캐시
 party.json
+party-debug.json
 names.json
 
 __pycache__/

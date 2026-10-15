@@ -48,6 +48,15 @@ PMD 스프라이트는 PMDCollab SpriteCollab 기여자들의 작품이며
 [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) 라이선스를 따릅니다.
 포켓몬별 작가 정보는 [PMD Sprite Repository](https://sprites.pmdcollab.org/)에서 확인할 수 있습니다.
 
+## 개발
+
+코드는 `pokepet/` 패키지에 있습니다 (모듈별 역할은 [CLAUDE.md](CLAUDE.md) 참고).
+
+```
+python -m pokepet --debug    # 야생 포켓몬이 몇 초마다 등장, 이벤트를 콘솔에 출력 (저장은 party-debug.json)
+python -m unittest           # 로직 테스트
+```
+
 ## Disclaimer
 
 비상업적 팬 프로젝트입니다. Pokémon 및 관련 캐릭터 이름·이미지의 저작권과 상표권은
