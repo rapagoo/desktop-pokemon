@@ -77,6 +77,10 @@ BIG_SPRITE = 100         # 이 픽셀보다 크면 확대하지 않음
 KEY = "#fe00fe"          # 투명 처리할 배경색
 TICK = 30                # ms
 GRAVITY = 0.9
+# 이동 속도 = 보폭 / 걷기 한 사이클 시간. 보폭은 몸 길이 x STRIDE.
+# 화면에서 너무 빠르거나 느리지 않게 속도를 자르고, 그만큼 애니메이션 재생 속도를 같이 바꾼다.
+STRIDE = 1.0
+SPEED_RANGE = (0.8, 5.0)         # px / tick (초당 약 27~166px)
 SHINY_CHANCE = 1 / 40
 DEFAULT_PARTY = [25, 133, 4]
 
@@ -324,6 +328,11 @@ class PmdSprite:
         # 걷기 프레임의 발끝 = 바닥, 대기 프레임의 머리 꼭대기
         ground = max(opaque_rows(i, range(bh - 1, -1, -1)) or 0 for i in boxed["walk"][0])
         head = min(opaque_rows(i, range(bh)) or bh for i in boxed["idle"][0])
+        # 걷기 한 사이클 동안 몸 길이(옆모습 폭)만큼 나아간다고 보고 자연스러운 이동 속도 계산
+        body = max((opaque_cols(i, range(bw - 1, -1, -1)) or 0) - (opaque_cols(i, range(bw)) or 0) + 1
+                   for i in boxed["walk"][0])
+        cycle = sum(boxed["walk"][2]) or 600
+        self.walk_speed = STRIDE * body * PMD_SCALE / cycle      # px/ms
         cw, ch = x1 - x0 + 1, y1 - y0 + 1
 
         def crop(img):
@@ -341,6 +350,7 @@ class PmdSprite:
 class GifSprite:
     """GIF 프레임을 합성해 좌/우 방향 확대 이미지 리스트로 보관. 모든 상태가 같은 애니메이션."""
     pause_sleep = True
+    walk_speed = None             # 걷기 모션이 없으니 속도 맞추기도 없음
 
     def __init__(self, path):
         if path.suffix == ".png":
@@ -595,6 +605,19 @@ class Pet:
             self.cv.tag_raise(i)
 
     # -------------------------------------------------- AI
+    def pick_speed(self, mult=1.0):
+        """걷기 애니메이션에 맞는 이동 속도 (px/tick)."""
+        if self.sp.walk_speed is None:
+            return random.uniform(1.2, 2.4) * mult
+        lo, hi = SPEED_RANGE
+        return max(lo, min(hi, self.sp.walk_speed * TICK * random.uniform(.85, 1.0) * mult))
+
+    def anim_rate(self):
+        """걷는 중이면 실제 이동 속도에 맞춰 애니메이션을 빠르게/느리게 재생."""
+        if self.anim_name != "walk" or not self.vx or self.sp.walk_speed is None:
+            return 1.0
+        return max(.4, min(2.0, abs(self.vx) / (self.sp.walk_speed * TICK)))
+
     def play(self, anim, on_done=None):
         """한 번만 재생하는 동작 (공격, 피격 등)."""
         self.action, self.action_done = anim, on_done
@@ -605,7 +628,7 @@ class Pet:
         self.state_t = duration if duration is not None else 0
         if s == "walk":
             self.facing = random.choice((-1, 1))
-            self.vx = self.facing * random.uniform(1.2, 2.4)
+            self.vx = self.facing * self.pick_speed()
         elif s in ("idle", "battle", "fainted", "dazed"):
             self.vx = 0
         elif s == "sleep":
@@ -632,7 +655,8 @@ class Pet:
         """화면 밖으로 걸어 나간다 (야생 포켓몬)."""
         l, t, r, b = self.app.area
         self.state = "leave"
-        self.vx = -3.0 if self.cx < (l + r) / 2 else 3.0
+        speed = self.pick_speed(1.3)
+        self.vx = -speed if self.cx < (l + r) / 2 else speed
 
     def land(self):
         if self.hp <= 0:
@@ -726,7 +750,7 @@ class Pet:
         frozen = (self.state == "sleep" and self.sp.pause_sleep) or \
                  (name in HOLD_LAST and self.frame == len(anim.left) - 1)
         if not frozen:
-            self.frame_t += dt
+            self.frame_t += dt * self.anim_rate()
             while self.frame_t >= anim.delays[self.frame]:
                 self.frame_t -= anim.delays[self.frame]
                 if self.frame + 1 < len(anim.left):
@@ -1086,7 +1110,9 @@ class App:
             healthy = [p for p in targets if p.hp >= p.max_hp * .4]   # 지친 포켓몬은 되도록 쉬게
             t = min(healthy or targets, key=lambda p: abs(p.cx - w.cx))
             dx = t.cx - w.cx
-            w.vx = 2.4 if dx > 0 else -2.4
+            if not getattr(w, "approach_speed", None):
+                w.approach_speed = w.pick_speed(1.1)
+            w.vx = w.approach_speed if dx > 0 else -w.approach_speed
             if abs(dx) < (t.sp.w + w.sp.w) / 4 + 24:
                 self.start_battle(t, w)
 
