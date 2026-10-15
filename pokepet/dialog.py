@@ -1,6 +1,8 @@
 """화면 구석에 표정 초상화와 함께 뜨는 PMD 스타일 대화창."""
 import tkinter as tk
 
+from . import screen
+from .config import CAPTURE_GUARD
 
 
 class Dialog:
@@ -27,6 +29,14 @@ class Dialog:
         self.text.grid(row=1, column=1, sticky="w")
         self.win.withdraw()
         self.win.bind("<Button-1>", lambda e: self._next())
+        self.guarded = False
+
+    def clear(self):
+        """숨길 때: 남은 대화를 버리고 창을 닫는다."""
+        self.queue.clear()
+        self._token = None
+        self.busy = False
+        self.win.withdraw()
 
     def push(self, pet, emotion, text):
         self.app.log(f"[{emotion}] {pet.display_name}: {text}")
@@ -53,6 +63,9 @@ class Dialog:
         self.win.geometry(f"+{r - w - 16}+{b - h - 16}")
         self.win.deiconify()
         self.win.attributes("-topmost", True)
+        if CAPTURE_GUARD and not self.guarded:      # 처음 화면에 나타난 뒤에 걸어야 적용됨
+            self.win.update_idletasks()
+            self.guarded = screen.exclude_from_capture(self.win)
         token = object()
         self._token = token
         self.app.root.after(self.SHOW_MS, lambda: self._token is token and self._next())

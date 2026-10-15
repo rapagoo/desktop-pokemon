@@ -3,7 +3,9 @@ import math
 import random
 import tkinter as tk
 
+from . import screen
 from .config import (
+    CAPTURE_GUARD,
     GRAVITY,
     HAPPY,
     HOLD_LAST,
@@ -71,6 +73,9 @@ class Pet:
         self.cv.bind("<ButtonRelease-1>", self.on_release)
         self.cv.bind("<Button-3>", self.on_menu)
         self.place()
+        if CAPTURE_GUARD:                 # 창이 실제로 만들어진 뒤에 걸어야 적용됨
+            self.win.update_idletasks()
+            screen.exclude_from_capture(self.win)
         if shiny and not wild:
             self.say("✨ 색이 다르다!", 2500)
 

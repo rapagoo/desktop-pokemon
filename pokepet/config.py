@@ -69,6 +69,11 @@ FAINT_REST_MS = 45_000           # 쓰러진 뒤 쉬는 시간
 DAZED_MS = 9_000                 # 쓰러진 야생 포켓몬을 잡을 수 있는 시간
 REGEN_FULL_MS = 90_000           # 평소 HP가 0에서 가득 차는 시간 (잘 때는 3배 빠름)
 
+# 수업 환경
+CAPTURE_GUARD = True             # 화면 공유·녹화·스크린샷에 포켓몬이 안 찍히게 (내 화면엔 보임)
+AUTO_HIDE_FULLSCREEN = True      # 영상·발표 같은 전체 화면 앱이 앞에 오면 자동으로 숨기기
+FULLSCREEN_CHECK_MS = 1_000
+
 
 def apply_debug():
     """--debug: 기다리지 않고 바로 테스트할 수 있게 시간을 줄인다. 다른 모듈을 import하기 전에 호출.

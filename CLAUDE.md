@@ -14,12 +14,14 @@ Python 3 표준 라이브러리(tkinter)만 사용한다. 외부 패키지를 �
 python desktop_pokemon.py            # 보통 실행 (포켓몬 실행.bat 과 같음)
 python -m pokepet --debug            # 개발용: 야생 포켓몬이 몇 초마다 등장, 이벤트를 콘솔에 출력,
                                      #         저장은 party-debug.json (진짜 파티는 안 건드림)
+python -m pokepet --debug --capturable   # 위 + 스크린샷에 포켓몬이 찍히게
 python -m unittest                   # 화면·네트워크 없이 도는 로직 테스트
 python -m pyflakes pokepet tests     # 빠진 import / 안 쓰는 이름 검사 (pip install pyflakes)
 ```
 
-화면 동작을 바꿨으면 `--debug`로 실제로 띄워 확인한다. 스크린샷은 PowerShell
-`System.Drawing.Graphics.CopyFromScreen`으로 찍을 수 있다.
+화면 동작을 바꿨으면 `--debug --capturable`로 실제로 띄워 확인한다. 스크린샷은 PowerShell
+`System.Drawing.Graphics.CopyFromScreen`으로 찍을 수 있다. **기본 실행에서는 포켓몬 창이
+캡처에서 빠지므로(`CAPTURE_GUARD`) 스크린샷에 안 찍힌다.**
 
 ## 구조 (`pokepet/`)
 
@@ -32,7 +34,8 @@ python -m pyflakes pokepet tests     # 빠진 import / 안 쓰는 이름 검사 
 | `dialog.py` | 표정 초상화 대화창 |
 | `pet.py` | `Pet`: 포켓몬 한 마리의 창·상태 머신·애니메이션·말풍선·HP 바 |
 | `battle.py` | `calc_damage`·`type_effect`(순수 함수) + `BattleMixin`(야생 등장, 배틀, 포획) |
-| `app.py` | `App(BattleMixin)`: 불러오기, 메인 루프(30ms), 메뉴, 숨기기, 저장 |
+| `screen.py` | Windows API: 화면 공유·녹화에서 창 빼기, 전체 화면 앱 감지 |
+| `app.py` | `App(BattleMixin)`: 불러오기, 메인 루프(30ms), 메뉴, 숨기기(이유별 `set_hidden`), 저장 |
 
 - config 값은 각 모듈이 import 시점에 가져간다. 실행 중에 바꾸려면 다른 모듈 import 전에 바꿔야 한다 (`__main__.py` 참고).
 - Tk 객체는 메인 스레드에서만 만든다. 다운로드는 스레드에서 하고 `App.loaded` 큐로 넘긴다.

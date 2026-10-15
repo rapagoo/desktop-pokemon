@@ -10,7 +10,9 @@ import tkinter as tk
 from tkinter import simpledialog
 
 from .config import (
+    AUTO_HIDE_FULLSCREEN,
     DEFAULT_PARTY,
+    FULLSCREEN_CHECK_MS,
     FIRST_SPAWN_MS,
     GREETS,
     KO_NAMES,
@@ -24,7 +26,7 @@ from .config import (
 )
 from .util import chant, exp_for, http_get, josa, load_json, poke_name, work_area
 from .sprites import load_sprite
-from . import assets
+from . import assets, screen
 from .battle import BattleMixin
 from .dialog import Dialog
 from .pet import Pet
@@ -50,7 +52,7 @@ class App(BattleMixin):
         self.sprites = {}
         self.portraits = {}
         self.loaded = queue.Queue()
-        self.hidden = False
+        self.hide_reasons = set()     # 비어 있지 않으면 숨긴 상태 (hidden 속성)
         self.dialog = Dialog(self)
 
         # 배틀 상태
@@ -66,6 +68,8 @@ class App(BattleMixin):
 
         self.menu = tk.Menu(self.root, tearoff=0, font=("맑은 고딕", 9))
         self.root.after(TICK, self.loop)
+        if AUTO_HIDE_FULLSCREEN:
+            self.root.after(FULLSCREEN_CHECK_MS, self.check_fullscreen)
 
     def log(self, msg):
         """--debug 일 때만 콘솔에 이벤트 출력."""
@@ -181,7 +185,6 @@ class App(BattleMixin):
                     a.say(random.choice(GREETS))
                     self.root.after(600, lambda b=b: b.say(chant(b.name)))
 
-    # -------------------------------------------------- battle
     # -------------------------------------------------- menu
     def show_menu(self, pet, x, y):
         m = self.menu
@@ -226,19 +229,41 @@ class App(BattleMixin):
                 self.save()
         self.root.after(800, bye)
 
-    def hide(self, ms):
-        self.hidden = True
-        for p in self.pets:
-            p.win.withdraw()
-        self.root.after(ms, self.show)
+    # -------------------------------------------------- hiding
+    @property
+    def hidden(self):
+        return bool(self.hide_reasons)
 
-    def show(self):
-        self.hidden = False
+    def set_hidden(self, reason, on):
+        """숨기는 이유("timer", "fullscreen")별로 켜고 끈다. 이유가 하나라도 남아 있으면 숨긴 상태."""
+        was = self.hidden
+        if on:
+            self.hide_reasons.add(reason)
+        else:
+            self.hide_reasons.discard(reason)
+        if self.hidden == was:
+            return
+        self.log(f"{'숨김' if self.hidden else '다시 보임'} ({reason})")
         for p in self.pets:
-            p.win.deiconify()
-            p.win.attributes("-topmost", True)
-            if not p.wild:
-                p.say("다녀왔어!", 1500)
+            if self.hidden:
+                p.win.withdraw()
+            else:
+                p.win.deiconify()
+                p.win.attributes("-topmost", True)
+                if reason == "timer" and not p.wild:
+                    p.say("다녀왔어!", 1500)
+        if self.hidden:
+            self.dialog.clear()
+
+    def hide(self, ms):
+        self.set_hidden("timer", True)
+        self.root.after(ms, lambda: self.set_hidden("timer", False))
+
+    def check_fullscreen(self):
+        """영상·발표 같은 전체 화면 앱이 앞에 있으면 숨기고, 끝나면 다시 보인다."""
+        own = {screen.hwnd_of(p.win) for p in self.pets} | {screen.hwnd_of(self.dialog.win)}
+        self.set_hidden("fullscreen", screen.fullscreen_app_active(own))
+        self.root.after(FULLSCREEN_CHECK_MS, self.check_fullscreen)
 
     def quit(self):
         self.save()
