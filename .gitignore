@@ -8,3 +8,6 @@ names.json
 
 __pycache__/
 *.pyc
+
+settings.json
+settings-debug.json

@@ -7,7 +7,8 @@ import shutil
 import sys
 import threading
 import tkinter as tk
-from tkinter import simpledialog
+from pathlib import Path
+from tkinter import filedialog, messagebox, simpledialog
 
 from .config import (
     AUTO_HIDE_FULLSCREEN,
@@ -19,11 +20,14 @@ from .config import (
     MAX_NUM,
     NAMES_FILE,
     PARTY_FILE,
+    SETTINGS_FILE,
     SHINY_CHANCE,
     SPECIES_URL,
     SPRITE_DIR,
+    START_LEVEL,
     TICK,
 )
+from .storage import SAVE_FOLDER, SaveStore
 from .util import chant, exp_for, http_get, josa, load_json, poke_name, work_area
 from .sprites import load_sprite
 from . import assets, screen
@@ -61,10 +65,18 @@ class App(BattleMixin):
         self.battle = None            # {"ally", "turn", "cool"}
         self.spawn_t = random.randint(*FIRST_SPAWN_MS)
 
-        party = load_json(PARTY_FILE, None) or [{"num": n} for n in DEFAULT_PARTY]
-        for p in party:
-            self.request(p["num"], p.get("shiny", False), save=False,
-                         stats={k: p[k] for k in ("level", "exp", "hp") if k in p})
+        # 저장소 (클라우드 폴더를 정했으면 학원 PC ↔ 집 PC 연동)
+        self.store = SaveStore(PARTY_FILE, SETTINGS_FILE)
+        other = self.store.other_running()
+        if other and not messagebox.askyesno(
+                "바탕화면 포켓몬",
+                f"다른 PC({other})에서 실행 중인 것 같아요.\n"
+                "두 곳에서 같이 켜 두면 한쪽 진행 상황이 저장되지 않을 수 있어요.\n\n그래도 실행할까요?"):
+            self.root.destroy()
+            sys.exit(0)
+        rec = self.store.load()
+        self.load_party(rec["party"] if rec and rec["party"] else [{"num": n} for n in DEFAULT_PARTY])
+        self.heartbeat()
 
         self.menu = tk.Menu(self.root, tearoff=0, font=("맑은 고딕", 9))
         self.root.after(TICK, self.loop)
@@ -75,6 +87,73 @@ class App(BattleMixin):
         """--debug 일 때만 콘솔에 이벤트 출력."""
         if self.debug:
             print(msg, flush=True)
+
+    # -------------------------------------------------- party / save
+    def load_party(self, party):
+        for p in party:
+            self.request(p["num"], p.get("shiny", False), save=False,
+                         stats={k: p[k] for k in ("level", "exp", "hp") if k in p})
+
+    def replace_party(self, party):
+        """다른 PC에서 저장한 파티로 바꾼다 (지금 화면의 내 포켓몬은 정리)."""
+        if self.battle:
+            self.abort_battle()
+        for p in self.party():
+            self.pets.remove(p)
+            p.destroy()
+        self.load_party(party)
+
+    def save(self):
+        party = [{"num": p.num, "shiny": p.shiny, "level": p.level, "exp": p.exp,
+                  "hp": round(p.hp)} for p in self.party()]
+        try:
+            where = self.store.save(party)
+            if where != self.store.save_file:
+                self.log(f"다른 PC가 먼저 저장해서 {where.name} 에 따로 저장했어요")
+        except OSError as ex:
+            print(f"저장 실패: {ex}", file=sys.stderr)
+        NAMES_FILE.write_text(json.dumps(self.names, ensure_ascii=False), encoding="utf-8")
+
+    def heartbeat(self):
+        """클라우드 저장 중이면 '이 PC에서 실행 중' 표시를 1분마다 갱신."""
+        try:
+            self.store.heartbeat()
+        except OSError:
+            pass
+        self.root.after(60_000, self.heartbeat)
+
+    def choose_save_dir(self):
+        """학원 PC와 집 PC가 같이 보는 클라우드 폴더를 저장 위치로 고른다."""
+        home = Path.home()
+        initial = next((p for p in (home / "Dropbox", home / "OneDrive") if p.exists()), home)
+        folder = filedialog.askdirectory(
+            parent=self.root, initialdir=str(initial),
+            title="학원 PC와 집 PC가 같이 보는 폴더 (Dropbox, OneDrive 등)")
+        if not folder:
+            return
+        found = self.store.peek(Path(folder) / SAVE_FOLDER / "save.json")
+        self.store.set_save_dir(folder)
+        if found and found["party"]:
+            top = max(p.get("level", START_LEVEL) for p in found["party"])
+            use_found = messagebox.askyesno(
+                "저장 위치 바꾸기",
+                f"그 폴더에 {found['machine'] or '다른 PC'}에서 저장한 기록이 있어요.\n"
+                f"(포켓몬 {len(found['party'])}마리, 최고 Lv.{top})\n\n"
+                "그 기록으로 바꿀까요?\n아니요를 누르면 지금 이 PC의 기록으로 덮어써요.")
+            if use_found:
+                self.replace_party(self.store.load()["party"])
+            else:
+                self.store.loaded_at = found["saved_at"]
+                self.save()
+        else:
+            self.save()
+        self.store.heartbeat()
+        self.log(f"저장 위치: {self.store.describe()}")
+
+    def use_local_save(self):
+        self.store.release()
+        self.store.set_save_dir(None)
+        self.save()
 
     # -------------------------------------------------- loading
     def request(self, num, shiny=None, save=True, wild=False, stats=None):
@@ -156,11 +235,6 @@ class App(BattleMixin):
         if item["save"]:
             self.save()
 
-    def save(self):
-        party = [{"num": p.num, "shiny": p.shiny, "level": p.level, "exp": p.exp,
-                  "hp": round(p.hp)} for p in self.pets if not p.wild]
-        PARTY_FILE.write_text(json.dumps(party), encoding="utf-8")
-        NAMES_FILE.write_text(json.dumps(self.names, ensure_ascii=False), encoding="utf-8")
 
     # -------------------------------------------------- main loop
     def loop(self):
@@ -201,6 +275,12 @@ class App(BattleMixin):
         m.add_command(label=f"{pet.name} 돌려보내기", command=lambda: self.remove(pet))
         m.add_separator()
         m.add_command(label="수업 집중! 5분 숨기기", command=lambda: self.hide(5 * 60 * 1000))
+        save_menu = tk.Menu(m, tearoff=0, font=("맑은 고딕", 9))
+        save_menu.add_command(label=f"지금: {self.store.describe()}", state="disabled")
+        save_menu.add_command(label="클라우드 폴더로 바꾸기… (학원 ↔ 집 연동)", command=self.choose_save_dir)
+        if self.store.save_dir:
+            save_menu.add_command(label="이 PC에만 저장하기", command=self.use_local_save)
+        m.add_cascade(label="저장 위치", menu=save_menu)
         m.add_command(label="종료", command=self.quit)
         m.tk_popup(x, y)
 
@@ -267,6 +347,7 @@ class App(BattleMixin):
 
     def quit(self):
         self.save()
+        self.store.release()
         self.root.destroy()
 
     def run(self):

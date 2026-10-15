@@ -6,7 +6,8 @@ from pathlib import Path
 # 프로젝트 루트 (sprites/, party.json 이 있는 곳)
 BASE = Path(__file__).resolve().parent.parent
 SPRITE_DIR = BASE / "sprites"
-PARTY_FILE = BASE / "party.json"
+PARTY_FILE = BASE / "party.json"           # 클라우드 저장 위치를 안 정했을 때의 저장 파일
+SETTINGS_FILE = BASE / "settings.json"     # 이 PC 전용 설정 (클라우드 저장 폴더 위치 등)
 NAMES_FILE = BASE / "names.json"
 
 # PMD 스프라이트·초상화 (CC BY-NC 4.0, PMDCollab/SpriteCollab)
@@ -82,7 +83,8 @@ def apply_debug():
     """
     g = globals()
     g.update(SPAWN_MS=(5_000, 8_000), FIRST_SPAWN_MS=(3_000, 3_000), FAINT_REST_MS=8_000,
-             DAZED_MS=5_000, REGEN_FULL_MS=20_000, PARTY_FILE=BASE / "party-debug.json")
+             DAZED_MS=5_000, REGEN_FULL_MS=20_000, PARTY_FILE=BASE / "party-debug.json",
+             SETTINGS_FILE=BASE / "settings-debug.json")
 
 # 공격 타입 -> {방어 타입: 배율} (1배는 생략)
 TYPE_CHART = {
