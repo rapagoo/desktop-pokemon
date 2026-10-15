@@ -20,11 +20,22 @@ python desktop_pokemon.py
 
 ## 스프라이트
 
-스프라이트 이미지는 이 저장소에 포함되어 있지 않습니다. 처음 실행할 때
-[PokeAPI/sprites](https://github.com/PokeAPI/sprites)에서 받아 `sprites/` 폴더에 캐시합니다.
-모두 5세대(BW) 도트 스타일입니다. 1~649번은 공식 BW 애니메이션, 650번 이후는
-[Smogon](https://www.smogon.com/) 팬메이드 BW 스타일 스프라이트(애니메이션이 없으면 정지 이미지 + 통통 튀는 효과)를
-[Pokémon Showdown](https://play.pokemonshowdown.com/sprites/)에서 받아옵니다.
+스프라이트 이미지는 이 저장소에 포함되어 있지 않습니다. 처음 실행할 때 받아서
+`sprites/` 폴더에 캐시합니다.
+
+- **기본**: [PMDCollab/SpriteCollab](https://github.com/PMDCollab/SpriteCollab)의
+  포켓몬 불가사의 던전 스타일 스프라이트. 걷기(Walk) / 대기(Idle) / 잠자기(Sleep) 애니메이션을
+  상태에 맞게 재생합니다. 1025마리 중 980마리 지원.
+- **대체**: PMD 스프라이트가 없는 포켓몬은 5세대 도트 스프라이트를 씁니다.
+  1~649번은 [PokeAPI/sprites](https://github.com/PokeAPI/sprites)의 공식 BW 애니메이션,
+  650번 이후는 [Pokémon Showdown](https://play.pokemonshowdown.com/sprites/)의
+  [Smogon](https://www.smogon.com/) 팬메이드 BW 스타일 스프라이트입니다.
+
+### Credits
+
+PMD 스프라이트는 PMDCollab SpriteCollab 기여자들의 작품이며
+[CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) 라이선스를 따릅니다.
+포켓몬별 작가 정보는 [PMD Sprite Repository](https://sprites.pmdcollab.org/)에서 확인할 수 있습니다.
 
 ## Disclaimer
 

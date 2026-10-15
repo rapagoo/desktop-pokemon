@@ -5,19 +5,23 @@
   - 드래그: 집어 들기 / 던지기
   - 우클릭: 메뉴 (포켓몬 추가, 돌려보내기, 잠깐 숨기기, 종료)
 
-스프라이트는 PokeAPI(github.com/PokeAPI/sprites)의 5세대 애니메이션 GIF를
-처음 한 번만 받아서 sprites/ 폴더에 캐시합니다. 순수 파이썬 표준 라이브러리만 사용.
+스프라이트는 PMD 스타일(PMDCollab/SpriteCollab)의 걷기/대기/잠자기 애니메이션을 쓰고,
+PMD 스프라이트가 없는 포켓몬은 5세대 도트 GIF로 대신합니다. 처음 한 번만 받아서
+sprites/ 폴더에 캐시합니다. 순수 파이썬 표준 라이브러리만 사용.
 """
 import ctypes
 import json
 import math
 import queue
 import random
+import shutil
 import struct
 import sys
 import threading
 import tkinter as tk
 import urllib.request
+import xml.etree.ElementTree as ET
+from collections import namedtuple
 from pathlib import Path
 from tkinter import simpledialog
 
@@ -26,6 +30,19 @@ SPRITE_DIR = BASE / "sprites"
 PARTY_FILE = BASE / "party.json"
 NAMES_FILE = BASE / "names.json"
 
+# PMD 스프라이트 (CC BY-NC 4.0, PMDCollab/SpriteCollab)
+PMD_ROOT = "https://raw.githubusercontent.com/PMDCollab/SpriteCollab/master/sprite/"
+PMD_SCALE = 3
+# 상태별로 쓸 애니메이션 (없으면 다음 후보)
+PMD_WANTED = {
+    "walk": ["Walk"],
+    "idle": ["Idle", "Walk"],
+    "sleep": ["Sleep", "EventSleep", "Laying", "Idle", "Walk"],
+}
+# 시트의 행 = 8방향: 0 아래, 1 오른아래, 2 오른, 3 오른위, 4 위, 5 왼위, 6 왼, 7 왼아래
+PMD_ROWS = {"walk": (6, 2), "idle": (7, 1), "sleep": (0, 0)}   # (왼쪽 볼 때, 오른쪽 볼 때)
+
+# PMD가 없을 때 쓰는 5세대 도트 스프라이트
 POKEAPI_ROOT = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/"
 SHOWDOWN_ROOT = "https://play.pokemonshowdown.com/sprites/"
 # 모두 5세대 도트 스타일. 우선순위대로 시도 (태그, URL 템플릿, 최대 번호)
@@ -139,8 +156,93 @@ def chant(name):
 
 
 # ---------------------------------------------------------------- sprites
-class Sprite:
-    """GIF 프레임을 합성해 좌/우 방향 확대 이미지 리스트로 보관."""
+# 스프라이트 공통 인터페이스:
+#   anims["walk"|"idle"|"sleep"] = Anim(left, right, delays)  (모든 프레임은 같은 크기 w x h)
+#   pad_bottom: 프레임 아래쪽의 빈 픽셀 수 (발이 작업표시줄에 닿게)
+#   pause_sleep: 잘 때 애니메이션을 멈출지 / static: 정지 이미지라 코드로 움직일지
+Anim = namedtuple("Anim", "left right delays")
+
+
+def load_sprite(path):
+    return PmdSprite(path) if path.is_dir() else GifSprite(path)
+
+
+def parse_anim_data(xml_bytes):
+    """AnimData.xml -> {상태: (시트 이름, 프레임 폭, 프레임 높이, [지속시간 ms])}"""
+    raw = {}
+    for a in ET.fromstring(xml_bytes).iter("Anim"):
+        name = a.findtext("Name")
+        if a.findtext("CopyOf"):
+            raw[name] = a.findtext("CopyOf")
+        else:
+            raw[name] = (int(a.findtext("FrameWidth")), int(a.findtext("FrameHeight")),
+                         [int(d.text) * 1000 // 60 for d in a.iter("Duration")])
+    out = {}
+    for state, candidates in PMD_WANTED.items():
+        for name in candidates:
+            for _ in range(5):                      # CopyOf 따라가기
+                if isinstance(raw.get(name), str):
+                    name = raw[name]
+            if isinstance(raw.get(name), tuple):
+                out[state] = (name,) + raw[name]
+                break
+    return out
+
+
+class PmdSprite:
+    """PMD 스프라이트 시트에서 상태별·방향별 프레임을 잘라 같은 크기로 맞춘다."""
+    pause_sleep = False
+    static = False
+
+    def __init__(self, folder):
+        info = parse_anim_data((folder / "AnimData.xml").read_bytes())
+        bw = max(v[1] for v in info.values())
+        bh = max(v[2] for v in info.values())
+        sheets, boxed = {}, {}
+        for state, (name, fw, fh, durs) in info.items():
+            if name not in sheets:
+                sheets[name] = tk.PhotoImage(file=str(folder / f"{name}-Anim.png"))
+            sheet = sheets[name]
+            rows, n = sheet.height() // fh, min(len(durs), sheet.width() // fw)
+            dirs = []
+            for row in PMD_ROWS[state]:
+                row = row if row < rows else 0
+                frames = []
+                for k in range(n):             # 셀 중심을 공통 박스 중심에 맞춤
+                    img = tk.PhotoImage(width=bw, height=bh)
+                    img.tk.call(img, "copy", sheet, "-from", k * fw, row * fh,
+                                (k + 1) * fw, (row + 1) * fh, "-to", (bw - fw) // 2, (bh - fh) // 2)
+                    frames.append(img)
+                dirs.append(frames)
+            boxed[state] = (dirs[0], dirs[1], durs[:n])
+
+        # 모든 프레임의 불투명 영역으로 잘라내기, 걷기 프레임의 발끝 = 바닥
+        x0, y0, x1, y1, ground = bw, bh, 0, 0, 0
+        for state, (left, right, _) in boxed.items():
+            for img in left + right:
+                for y in range(bh):
+                    for x in range(bw):
+                        if not img.transparency_get(x, y):
+                            x0, x1 = min(x0, x), max(x1, x)
+                            y0, y1 = min(y0, y), max(y1, y)
+                            if state == "walk":
+                                ground = max(ground, y)
+        cw, ch = x1 - x0 + 1, y1 - y0 + 1
+
+        def crop(img):
+            out = tk.PhotoImage(width=cw, height=ch)
+            out.tk.call(out, "copy", img, "-from", x0, y0, x1 + 1, y1 + 1)
+            return out.zoom(PMD_SCALE)
+
+        self.anims = {s: Anim([crop(i) for i in l], [crop(i) for i in r], d)
+                      for s, (l, r, d) in boxed.items()}
+        self.w, self.h = cw * PMD_SCALE, ch * PMD_SCALE
+        self.pad_bottom = (y1 - ground) * PMD_SCALE
+
+
+class GifSprite:
+    """GIF 프레임을 합성해 좌/우 방향 확대 이미지 리스트로 보관. 모든 상태가 같은 애니메이션."""
+    pause_sleep = True
 
     def __init__(self, path):
         if path.suffix == ".png":
@@ -176,9 +278,10 @@ class Sprite:
                     base.tk.call(base, "copy", hole, "-to", rx, ry, "-compositingrule", "set")
             elif disp != 3:
                 base = comp
-        self.delays = [(info[k][1] if k < len(info) else 100) for k in range(len(frames))]
-        self.left = [f.zoom(scale) for f in frames]                 # 원본은 왼쪽을 봄
-        self.right = [f.subsample(-1, 1).zoom(scale) for f in frames]
+        delays = [(info[k][1] if k < len(info) else 100) for k in range(len(frames))]
+        anim = Anim([f.zoom(scale) for f in frames],                 # 원본은 왼쪽을 봄
+                    [f.subsample(-1, 1).zoom(scale) for f in frames], delays)
+        self.anims = {"walk": anim, "idle": anim, "sleep": anim}
         self.w, self.h = w * scale, h * scale
         self.static = len(frames) == 1
         self.pad_bottom = self._bottom_padding(frames[0]) * scale
@@ -225,7 +328,7 @@ class Pet:
                             highlightthickness=0, bd=0)
         self.cv.pack()
         self.img_id = self.cv.create_image(self.cw // 2, self.ch, anchor="s",
-                                           image=sprite.left[0])
+                                           image=sprite.anims["idle"].left[0])
         self.bubble_ids = []
         self.bubble_ttl = 0
 
@@ -234,7 +337,7 @@ class Pet:
         self.y = t - self.ch          # 화면 위에서 떨어지며 등장
         self.vx = self.vy = 0.0
         self.facing = random.choice((-1, 1))
-        self.frame, self.frame_t, self.bob_t = 0, 0, 0
+        self.anim_name, self.frame, self.frame_t, self.bob_t = "idle", 0, 0, 0
         self.state, self.state_t = "fall", 0
         self.drag = None
         self.pets = 0
@@ -338,13 +441,17 @@ class Pet:
         if self.vx:
             self.facing = 1 if self.vx > 0 else -1
 
-        # 애니메이션 (자는 중엔 멈춤)
-        if self.state != "sleep":
+        # 상태에 맞는 애니메이션 재생
+        name = {"walk": "walk", "sleep": "sleep"}.get(self.state, "idle")
+        if name != self.anim_name:
+            self.anim_name, self.frame, self.frame_t = name, 0, 0
+        anim = self.sp.anims[name]
+        if not (self.state == "sleep" and self.sp.pause_sleep):
             self.frame_t += dt
-            while self.frame_t >= self.sp.delays[self.frame]:
-                self.frame_t -= self.sp.delays[self.frame]
-                self.frame = (self.frame + 1) % len(self.sp.left)
-        frames = self.sp.right if self.facing > 0 else self.sp.left
+            while self.frame_t >= anim.delays[self.frame]:
+                self.frame_t -= anim.delays[self.frame]
+                self.frame = (self.frame + 1) % len(anim.left)
+        frames = anim.right if self.facing > 0 else anim.left
         self.cv.itemconfig(self.img_id, image=frames[self.frame])
         if self.sp.static:
             self.bob_t += dt
@@ -454,7 +561,13 @@ class App:
 
     def _fetch(self, num, shiny, save):
         try:
-            path = self._download_sprite(num, shiny)
+            # PMD(이로치) → PMD(일반) → 5세대 도트 순서. PMD 이로치가 없으면 일반으로.
+            path = self._download_pmd(num, shiny)
+            if path is None and shiny:
+                path = self._download_pmd(num, False)
+                shiny = False if path else shiny
+            if path is None:
+                path = self._download_sprite(num, shiny)
             if num not in KO_NAMES and str(num) not in self.names:
                 try:
                     sp = json.loads(http_get(SPECIES_URL.format(num=num)))
@@ -466,6 +579,28 @@ class App:
             self.loaded.put((num, shiny, path, save))
         except Exception as ex:
             print(f"#{num} 불러오기 실패: {ex}", file=sys.stderr)
+
+    @staticmethod
+    def _download_pmd(num, shiny):
+        """PMD 스프라이트 폴더를 받아 sprites/pmd-<번호>/ 에 저장. 없으면 None."""
+        folder = SPRITE_DIR / f"pmd-{'s' if shiny else ''}{num}"
+        if (folder / "done").exists():
+            return folder
+        base = f"{PMD_ROOT}{num:04d}/{'0000/0001/' if shiny else ''}"
+        try:
+            xml = http_get(base + "AnimData.xml")
+            info = parse_anim_data(xml)
+            if "walk" not in info:
+                return None
+            sheets = {v[0]: http_get(base + f"{v[0]}-Anim.png") for v in info.values()}
+        except Exception:
+            return None
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "AnimData.xml").write_bytes(xml)
+        for name, data in sheets.items():
+            (folder / f"{name}-Anim.png").write_bytes(data)
+        (folder / "done").write_text("ok")
+        return folder
 
     @staticmethod
     def _download_sprite(num, shiny):
@@ -497,10 +632,13 @@ class App:
         key = path.name
         if key not in self.sprites:
             try:
-                self.sprites[key] = Sprite(path)
+                self.sprites[key] = load_sprite(path)
             except Exception as ex:
                 print(f"{key} 읽기 실패: {ex}", file=sys.stderr)
-                path.unlink(missing_ok=True)
+                if path.is_dir():
+                    shutil.rmtree(path, ignore_errors=True)
+                else:
+                    path.unlink(missing_ok=True)
                 return
         pet = Pet(self, num, shiny, self.sprites[key], poke_name(num, self.names))
         if self.hidden:
