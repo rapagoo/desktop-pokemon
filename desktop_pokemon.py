@@ -41,6 +41,8 @@ PMD_ROOT = "https://raw.githubusercontent.com/PMDCollab/SpriteCollab/master/spri
 PORTRAIT_URL = "https://raw.githubusercontent.com/PMDCollab/SpriteCollab/master/portrait/{num:04d}/{emo}.png"
 PMD_VERSION = "v2"       # 쓰는 애니메이션 목록이 바뀌면 올려서 캐시를 다시 받게 함
 PMD_SCALE = 3
+PMD_SCALE_BIG = 2        # 원본 몸 크기가 PMD_BIG 픽셀을 넘으면 이 배율로
+PMD_BIG = 40
 # 상태별로 쓸 애니메이션 (없으면 다음 후보)
 PMD_WANTED = {
     "walk": ["Walk"],
@@ -331,20 +333,25 @@ class PmdSprite:
         # 걷기 한 사이클 동안 몸 길이(옆모습 폭)만큼 나아간다고 보고 자연스러운 이동 속도 계산
         body = max((opaque_cols(i, range(bw - 1, -1, -1)) or 0) - (opaque_cols(i, range(bw)) or 0) + 1
                    for i in boxed["walk"][0])
+        # 원본이 크게 그려진 포켓몬(롱스톤, 갸라도스 등)은 덜 확대해서 크기를 비슷하게
+        idle_w = max((opaque_cols(i, range(bw - 1, -1, -1)) or 0) - (opaque_cols(i, range(bw)) or 0) + 1
+                     for i in boxed["idle"][0])
+        scale = PMD_SCALE_BIG if max(idle_w, ground - head + 1) > PMD_BIG else PMD_SCALE
         cycle = sum(boxed["walk"][2]) or 600
-        self.walk_speed = STRIDE * body * PMD_SCALE / cycle      # px/ms
+        self.walk_speed = STRIDE * body * scale / cycle      # px/ms
         cw, ch = x1 - x0 + 1, y1 - y0 + 1
 
         def crop(img):
             out = tk.PhotoImage(width=cw, height=ch)
             out.tk.call(out, "copy", img, "-from", x0, y0, x1 + 1, y1 + 1)
-            return out.zoom(PMD_SCALE)
+            return out.zoom(scale)
 
         self.anims = {s: Anim([crop(i) for i in l], [crop(i) for i in r], d)
                       for s, (l, r, d) in boxed.items()}
-        self.w, self.h = cw * PMD_SCALE, ch * PMD_SCALE
-        self.pad_bottom = (y1 - ground) * PMD_SCALE
-        self.head_top = (head - y0) * PMD_SCALE
+        self.scale = scale
+        self.w, self.h = cw * scale, ch * scale
+        self.pad_bottom = (y1 - ground) * scale
+        self.head_top = (head - y0) * scale
 
 
 class GifSprite:
